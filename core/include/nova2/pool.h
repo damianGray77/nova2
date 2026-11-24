@@ -1,0 +1,68 @@
+#pragma once
+
+// ThreadPool: the per-tick shared task queue (from Nova 1; design.md 2).
+//
+// run(count, fn, ctx) calls fn(ctx, i) once for every i in [0, count). The
+// calling thread and N-1 workers all pull the next index from one shared
+// interlocked counter until the range is exhausted, and run() returns only when
+// every call has finished -- that return is the tick barrier.
+//
+// Why a shared counter instead of static regions: the i7-12700H mixes 6
+// performance and 8 efficiency cores, so fixed slices would leave the fast cores
+// idle waiting on the slow ones. Pulling one index at a time self-balances.
+//
+// Nothing about *which* thread runs a task, or when, may affect results; the
+// world guarantees that by having each task touch only its own place's state.
+// set_dispatch_order() and set_dispatch_reversed() exist so tests can prove
+// it by permuting the order.
+//
+// Win32 primitives only (threads, SRWLOCK, CONDITION_VARIABLE, Interlocked*):
+// no <thread>, <mutex> or <atomic>. windows.h stays out of this header.
+#include "nova2/types.h"
+
+namespace nova2 {
+
+// A monotonic clock in seconds (QueryPerformanceCounter), for profiling.
+double clock_seconds();
+
+class ThreadPool {
+  public:
+    using TaskFn = void (*)(void* ctx, u32 index);
+
+    ThreadPool() = default;
+    ~ThreadPool() { stop(); }
+    ThreadPool(const ThreadPool&) = delete;
+    ThreadPool& operator=(const ThreadPool&) = delete;
+
+    // threads = total threads including the caller; 0 = every hardware thread.
+    // threads = 1 runs tasks inline on the caller with no worker threads.
+    void start(u32 threads);
+    void stop();
+
+    u32 threads() const { return threads_; }
+    void run(u32 count, TaskFn fn, void* ctx);
+
+    // Test hook: slot k of the shared queue runs task order[k] instead of k,
+    // in every later run() of `count` tasks (runs of other lengths go in
+    // order). order must be a permutation of [0, count) and outlive those
+    // runs; nullptr restores the identity order.
+    void set_dispatch_order(const u32* order, u32 count) {
+        order_ = order;
+        order_count_ = order ? count : 0;
+    }
+    // And with `reversed`, every later run of another length goes in reverse
+    // (slot k runs task count - 1 - k): for runs whose lengths no test knows
+    // ahead, as a big fade's chunks (world.h, set_fade_spread).
+    void set_dispatch_reversed(bool reversed) { reversed_ = reversed; }
+
+    static u32 hardware_threads();
+
+  private:
+    void* impl_ = nullptr; // PoolImpl, defined in pool.cpp
+    u32 threads_ = 0;
+    const u32* order_ = nullptr;
+    u32 order_count_ = 0;
+    bool reversed_ = false;
+};
+
+} // namespace nova2

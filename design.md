@@ -77,10 +77,10 @@ principle 7 applied to the build.
 | Gate | The question | What is built for it |
 |---|---|---|
 | 1 | Does a replicator arise from static? | The instruction set (8); every call that works within one place on a steady supply (9.1–9.5): memory, the scheduler, SLEEP, SETCORE, SETCLOCK's speed and errors, handlers for faults and timers, and the raw disk; the reset region (10.1–10.3); places with no links between them; the noise floors; the region measures (13.1); the facts log; the origin test (10.6) |
-| 2 | Does a full place keep turning over? | Memory fade, cut-outs and the crash rule (7.6), a varying supply, the boot block's cold start (10.5) |
-| 3 | Does life spread? | The map (6), links, SEND, RECV and PING (11), port 0 (10.4), the network device, handlers for arriving data |
-| 4 | Does the physics shape it? | The voltage solve (4), heat (5), the day, sources, the low-voltage interrupt, cooling devices |
-| 5 | Does it stay interesting? | Wear and visits (7.4, 7.8), respawning places, regional events and strikes (12), network outages and rerouting (11.6), rowhammer (9.8), the wear-levelling and replacement options |
+| 2 | Does a full place keep turning over? | Memory fade, cut-outs and the crash rule (7.6), edge errors (7.5), a varying supply (a source and a day at each place, below), power draw, the boot block's cold start (10.5), with port 0's queue and prompt runs for it (10.4) |
+| 3 | Does life spread? | The map (6), links, SEND, RECV and PING (11), arrivals at port 0 from other places (10.4), the network device, handlers for arriving data |
+| 4 | Does the physics shape it? | The voltage solve (4), heat (5), the day's sweep across the map, sources coming and going, swells, the low-voltage interrupt, cooling devices |
+| 5 | Does it stay interesting? | Wear and visits (7.4, 7.8), respawning places, regional events and strikes (12), network outages and rerouting (11.6), rowhammer (9.8), the wear-levelling and replacement options; and four mechanics Damian chose on 2026-11-20: flaky parts (7.5), straits that part and rejoin (11.6), the out-of-memory killer and the watchdog (9.1), and replication currents (12.6) |
 
 - **Why gate 1 has every call that works within one place (approved
   2026-11-11).** The origin test needs a SPAWNed thread to run, so the
@@ -88,9 +88,86 @@ principle 7 applied to the build.
   live later would make the origin test answer a different question from
   the one the world asks: SETCLOCK, for example, costs 10,000–100,000
   cycles of a run's cap.
+- **The supply before gate 4 [2026-11-14, `build-plan-gate2.md` 2; agreed
+  with Damian].** Gate 2 needs a supply that varies, before the map and
+  the voltage solve exist.
+  - **Each place has a source of its own:** 4.2's model reduced to one
+    place, a voltage behind an internal resistance. The place's own draw
+    sags it, through appendix C's one-tick lag, which for one source and
+    one place is a single division, not a solve. So crowding matters from
+    gate 2 (R1).
+  - **It varies by 4.3's swings and drop-outs, and a day at each place:**
+    capacity rising and falling over the day's length, each place at its
+    own phase drawn from the seed. All of it is drawn before the run and
+    never reacts to the world (principle 3).
+  - **Power draw comes with it** (7.1, appendix C). Heat stays at gate 4, so
+    temperature is constant and leakage a fixed factor.
+  - **Gate 4 replaces it** with sources on the map, the voltage solve and
+    the day sweeping across the map. Swells (and the heat trips they
+    cause) come then too, and ramps at gate 5.
+- **The map at gate 3 [2026-11-16, `build-plan-gate3.md` 2; agreed with
+  Damian].** Gate 3 builds the parts of the map (6) that data needs, and
+  the fields that make places differ:
+  - land and water, places by density with their ids shuffled, data links
+    and bridges, and each link's length, bandwidth and delay (6.1);
+  - the fields for the hardware and OS values (7.3, 9.6).
+
+  Proximity links and what they carry, water as a conductor, the
+  resistance field and grid borders, the cooling field and the day's sweep
+  come with gate 4, which is the first to need them. The supply stays gate
+  2's until then. On land the two Gabriel graphs are almost the same links
+  (6.1), so gate 4 adds the water crossings without moving what gate 3
+  built.
+- **The world at gate 4 [2026-11-19, `build-plan-gate4.md` 2; agreed with
+  Damian].**
+  - **The runs are at 48 places a seed,** at gate 3's budget, so the
+    regressions compare like with like. A 10-link band has no room on a
+    map about 7 links across, so in those runs the links resist enough
+    for a band about 3 links wide. They show the kinds of ground place by
+    place (14.1), not the geometry of bands.
+  - **Test worlds at 1,000 places,** with placed replicators and the
+    10-link band, show bands, creep and heat at the size the design is
+    for (R7: evidence about the mechanism, not about life).
+  - **Sources are many and small at that size** (4.1), about one for
+    every four places, with lives long against the time to stage 4. Dark
+    ground is left to luck (4.2).
+  - **Swells and drop-outs start and end at once.** Ramps come at gate 5
+    (12.4), for both.
+  - **Two switches:** `supply.model`, `sources` (the default from gate 4)
+    or `place` (the supply before gate 4, above); and `heat.on`. With the
+    supply by place, heat off and `os.stack_held` off (9.4), gate 4's
+    engine gives gate 3's world.
+- **The world at gate 5 [2026-11-20, `build-plan-gate5.md` 2; agreed with
+  Damian].**
+  - **The runs are at 48 places a seed,** at gate 4's budget, judged on
+    each seed's late eras (14.1). Long runs are the open-ended run's job
+    once gate 5 passes, watched rather than judged; the full-size map
+    waits for the optimization work after gate 5. Chosen over four times
+    the budget (one and a half to two days, and no longer like with
+    like), and over a few long seeds at 200 places of 4 MB (too few to
+    carry a mark across seeds, principle 5).
+  - **The falling cosmic-ray rate stays off** in the judged runs (7.5),
+    so the regressions compare like with like. It is a lever if gate 5
+    fails its measure, and a candidate for the open-ended run after.
+  - **The four mechanics Damian chose on 2026-11-20** (flaky parts,
+    straits, the out-of-memory killer and the watchdog, replication
+    currents) are each a setting with an off. They are on in the judged
+    run, and one comparison run of 20 seeds has all four off, to tell
+    what they do from what life does. Damian kept it when the runs
+    became one combined run, below ("Keep the comparison").
+  - **With every gate 5 strength off,** and the message lifetime 0
+    (11.6), gate 5's engine gives gate 4's world.
+  - **One 20-seed run judges gates 4 and 5 together** [Damian,
+    2026-11-20: "we only need a single 20 seed test that is a combined
+    gate 4+5. I don't think we need 2"; earlier that day he had held the
+    20-seed runs until both gates were built]. It is made once both are
+    built. Gate 5's numbers that depend on gate 4 are worked from gate
+    4's pilot and build. `runs/open-2` keeps the host, on its own exe,
+    until the run needs it; gate 4's pilot may run beside it, small and
+    at low priority [Damian, 2026-11-20: "Yes, beside open-2"].
 - **Calls before their gate.** Until gate 3, SEND and PING fail as they do
   when the place's network device is off, and RECV waits on inboxes that
-  never fill. They charge their real costs.
+  never fill. They charge their real costs. From gate 3 they're live (11).
 - **The GPU and NPU are parked (R20).** They're designed, but not built
   until a gate names the condition in which using them wins.
 - The viewer's views follow the same gates. Most of 13.4 shows things that
@@ -225,6 +302,30 @@ principle 7 applied to the build.
   - the interpreter on one place;
   - its scaling across cores;
   - the cost of the per-access counters (rowhammer, memory draw).
+- **The world hash and snapshots [details at build, step 9; 2026-11-11].**
+  - **Every place's whole state** is saved field by field, never as raw
+    structures, so padding can't reach it. The world's hash combines each
+    place's hash with the seed and the tick.
+  - **The hash covers exactly what a snapshot holds.** Access caches and
+    report counters are left out: they change no result.
+  - **Snapshots are taken at the barrier.** A world is rebuilt from its
+    settings, then its state is read into it. So a resumed world keeps its
+    settings, and only `run.*` can change.
+  - **The network [details at build, step 5; 2026-11-16]:** with a map,
+    the network's state follows the places', in the snapshot and in the
+    hash:
+    - each link end's queue, the message it's sending and what's on its
+      wire;
+    - every message on its way, with its bytes, and the deliveries due;
+    - which places' network devices are dark.
+
+    The routes aren't saved. They follow from the dark places, so a
+    resumed world works them out again as they're asked for, and gets the
+    same ones. A snapshot whose network fails its own check doesn't load.
+    Each place's part includes its comms ports' inboxes, its neighbour
+    SENSE requests, the threads waiting in RECV or for a PING's echo, and
+    each core's wait for an idle run's SEND. Its outbox is empty at the
+    barrier, since every SEND has joined the network by then.
 - **A GPU backend is a later option, not a plan.**
   - It would be the whole engine resident on the GPU, to avoid per-tick
     transfers. Its best case is an unmeasured "a few times the CPU".
@@ -417,6 +518,12 @@ the abstraction rule (3, principle 9).
     average is chance × lifetime.
   - Real anchor: hydrothermal vents open and die, and their communities
     move with them.
+  - **In detail [details at build; 2026-11-19, `build-plan-gate4.md` 2;
+    agreed with Damian]:** a source's landing point, type, size, birth,
+    lifetime, swings, drop-outs and swells are a function of the seed and
+    the tick alone. It grows over the first tenth of its life and fades
+    over the last tenth, by its capacity. Lifetimes are spread evenly on
+    a log scale from a quarter of the mean to four times it.
 - **Sources land by area.** Each new source lands at a random point on land
   and joins the nearest place.
   - A place's chance is its catchment area raised to a power, set by a
@@ -425,6 +532,10 @@ the abstraction rule (3, principle 9).
   - Consequence: the countryside is rich in power and poor in network,
     and towns the reverse.
   - Real anchor: sunlight and wind fall by area.
+  - **In detail [details at build; 2026-11-19, `build-plan-gate4.md` 2;
+    agreed with Damian]:** the point is a random land cell of the raster,
+    weighted so that a place's chance is its catchment's area raised to
+    the power. The point is kept, for respawning (7.8).
 - **Sources don't wear.** The "power companies" maintain them from outside
   the world.
 - **Luck is part of the world.** A region, or the whole world, can go
@@ -434,6 +545,10 @@ the abstraction rule (3, principle 9).
 
 - **Day and night sweep across the map from east to west.** The settings
   are the day's length and the night's depth.
+  - **The day's span [2026-11-19, `build-plan-gate4.md` 2; agreed with
+    Damian]:** a setting, how much of a day lies between the map's east
+    and west edges. The default is a whole day, so it is always noon
+    somewhere and the world's total supply stays about level.
 - **The supply never reacts to what the world draws** (3, principle 3).
 - **Night and swings lower a source's capacity, not its voltage.** They
   scale its internal resistance, as a solar panel in dim light holds its
@@ -451,6 +566,8 @@ the abstraction rule (3, principle 9).
 - **Swells:** a source's voltage can rise above its normal level for a
   while, from 1.1 to 1.8 times normal, as in the power-quality standard
   IEEE 1159. Swells also ramp up (12.4).
+- **Until gate 5 brings ramps,** drop-outs and swells start and end at
+  once [2026-11-19, `build-plan-gate4.md` 2; agreed with Damian].
 
 ### 4.4 Devices on the supply
 
@@ -459,6 +576,12 @@ the abstraction rule (3, principle 9).
   - Near either edge it makes wrong results.
   - Above its maximum it heats, and past its heat limit it trips until it
     has cooled.
+    - A working core heats there by its own law: its speed stops rising
+      at the maximum, and its draw goes on rising with voltage².
+    - The constant draws (memory's holding draw, the disk's, the network
+      device's and a halted core's) stay constant inside the range, and
+      rise as (voltage ÷ maximum)² above it [2026-11-19,
+      `build-plan-gate4.md` 2; agreed with Damian].
 - **Speed follows voltage.** Within its range a device runs faster and
   hotter near the top, and slower and cooler near the bottom.
   - Speed is in proportion to (voltage − threshold) (7.5), and working
@@ -579,6 +702,21 @@ the abstraction rule (3, principle 9).
 - **Tuning:** given the sources' strength, choose cooling so that only
   places close to strong sources pass the devices' heat limits.
 - **Cooling devices** are in the catalogue (7.7).
+- **In detail [details at build; 2026-11-19, `build-plan-gate4.md` 2;
+  agreed with Damian]:**
+  - a place's cooling rate is the base rate × its cooling field's value
+    × (1 + the coast factor × the share of water among the raster cells
+    bordering its catchment);
+  - a land link's heat conductance is the setting ÷ its length in average
+    links;
+  - leakage is counted from the outside temperature, so a cold world
+    draws what it did before heat was built;
+  - a memory cell's retention halves for each 10 °C its device is above
+    45 °C (both are settings);
+  - a heat trip needs no off-time: the device comes back at its cool-down
+    point. A thread ended by one has the cause "heat";
+  - a heat trip of the memory device holding the reset region ends in a
+    cold start when it cools (10.5).
 
 ## 6. Space
 
@@ -632,6 +770,12 @@ fields or the coasts.
     its two places, rising exponentially with the water's width.
   - Defaults: a drain of about one small device's draw at full voltage,
     and a reach of one link length.
+  - **In detail [details at build; 2026-11-19, `build-plan-gate4.md` 2;
+    agreed with Damian]:** a link's water width is the part of it that
+    lies over water cells, and its resistance is its land resistance ×
+    e^(width ÷ reach). A place's shore drain is a conductance to ground:
+    the drain setting × the share of water among the raster cells
+    bordering its catchment.
   - Consequences:
     - coasts are cool and rich in data, and pay a small power tax;
     - narrow straits pass a trickle of power, and wide seas pass none;
@@ -640,7 +784,8 @@ fields or the coasts.
     - small islands have long dark spells.
 - **Lengths are measured in links.** Every length setting is in units of the
   average link length, so adding places makes the world bigger, not
-  denser.
+  denser. The one exception is the longest bridge, which is in the map's
+  height [2026-11-16, `build-plan-gate3.md` 11 step 2; agreed with Damian].
 - **The day sweep** follows east–west position. The map is bounded by sea,
   so the sweep doesn't wrap.
 - **Settings, roughly 20:**
@@ -653,6 +798,33 @@ fields or the coasts.
   - the resistance and bandwidth fields.
 
   Nova 1 had 44 settings for the same job.
+- **The switch `world.map`** [2026-11-16, `build-plan-gate3.md` 2; agreed
+  with Damian]: `landscape` (the default); `none`, places with no links,
+  as at gates 1 and 2; and `grid` and `ring`, for test worlds only.
+- **The map in detail [details at build, step 2; 2026-11-16; the joins
+  agreed with Damian]:**
+  - **Places:** darts land on land cells chosen by the density field. Each
+    has a spacing of r ÷ √d at its cell, where d runs from 1 to
+    `map.density`, evenly on a log scale with the field's rank over the
+    land. Two darts keep the mean of their spacings apart. r starts loose
+    and shrinks by 0.85 until every place fits. Setup refuses a map whose
+    closest places would be under a quarter of a raster cell apart. The ids
+    are then shuffled.
+  - **Data links:** each landmass's Delaunay triangulation, keeping an edge
+    if both angles facing it are acute, so no other place of the landmass
+    lies in the circle on it. A landmass of two places is linked. One the
+    triangulation can't join (all its places on a line) is joined by its
+    shortest gaps.
+  - **Bridges:** from the triangulation of all the places, shortest first:
+    up to `map.bridges` a pair of landmasses, none longer than
+    `map.bridge.longest`, and no place at the end of two. Then each
+    landmass still apart is joined to the rest by its shortest crossing,
+    whatever its length (a join), so every landmass is bridged. The longest
+    bridge is in the map's height, as `build-plan-gate3.md` 7 gives it.
+  - **A link's numbers:** the average link length is that of the links on
+    land. The bandwidth field is read at a link's middle, ranked among the
+    links on land, and spread evenly on a log scale from the least
+    bandwidth to the most.
 - **Risks:**
   - On land, a place well linked for data is also well linked for power
     and heat. Fields loosen the coupling, and it's left alone until a test
@@ -675,6 +847,7 @@ fields or the coasts.
     coastlines.
   - Each field has an edge-strength slider (0 means smooth only) and a
     sharpness.
+  - How a field sets each place's hardware and OS values is in 7.3.
 - **Barriers are hard to cross, not walls.**
 - **Hardware biomes:** smooth fields over the map decide where fast GPUs,
   large memories and so on cluster (7.3). These are Nova 1's substrates,
@@ -684,6 +857,10 @@ fields or the coasts.
 - **Grid borders, on the links.** The resistance field's step contours are
   read as borders: a proximity link that crosses one has its resistance
   multiplied, making it a thin tie between grids.
+  - In detail [details at build; 2026-11-19, `build-plan-gate4.md` 2;
+    agreed with Damian]: a link crosses a border when its ends lie on
+    opposite sides of a step of the field, and its resistance is raised
+    by the border's strength, in links.
   - Strength: crossing a border costs as much as about one habitable band's
     width in ordinary links (10 links, as a placeholder).
   - Spacing: borders about 20–30 links apart, so a large landmass has one
@@ -843,6 +1020,55 @@ here.
     size, which stays the same, so addresses and disk offsets never move.
   - It replaces a worn one like for like (7.8).
   - A respawned place draws everything fresh where it lands.
+  - **What "fresh" means, now that values are dealt by rank [2026-11-20,
+    `build-plan-gate5.md` 2; agreed with Damian].** One device or one
+    place can't be dealt again without moving every other. So a
+    replacement takes the values its place was dealt (a core's kind, a
+    memory device's latency and with it its threshold), with fresh draws
+    of what is the device's own: its endurance, its leak ranks, its
+    rowhammer threshold, its error floor (7.5) and its error countdowns.
+    A respawned place reads each field at its new point, with the
+    scatter, and takes the value the world dealt to the field value
+    nearest its own, from a table kept at setup. So the world's mix of
+    values drifts only as places move, the order by speed that ALLOC's
+    device argument uses doesn't change at a replacement, and the reset
+    region stays on the device with the lowest threshold (10.2). Chosen
+    over drawing evenly from each range, as gates 1 and 2 did, and over
+    keeping the old values.
+- **At gate 1, with no map fields [details at build, step 9; 2026-11-11]:**
+  - **Cores:** a count drawn evenly between the settings' bounds, each an E
+    core with a set chance.
+  - **Memory devices:** a count drawn the same way. The memory is shared
+    out equally in whole kilobytes. Each device draws a latency evenly in
+    its range, and its threshold follows the latency in a straight line
+    from fast memory's to slow memory's. So the reset region always lands
+    on the slowest memory.
+  - **One disk** of the set size.
+  - **The OS values:** a page size drawn evenly from the list, and strict
+    with a set chance.
+- **From gate 3, from the fields [2026-11-16, `build-plan-gate3.md` 2;
+  agreed with Damian].** Each value gates 1 and 2 draw evenly has a field
+  of its own instead: the core count, the E cores, the memory device count
+  and latencies, the page size, and strict or lax.
+  - The values are drawn for all the places as before, then dealt out to
+    the places in the order of that field's value at each, nudged by a
+    small scatter. So the world's mix of values stays gate 2's, and only
+    where they sit changes: neighbours alike, with barriers between.
+  - Each field is 6.2's two layers, seeded for that field, with its own
+    edge strength and sharpness.
+  - A switch (`map.fields`) turns them off, for gate 2's independent
+    draws.
+  - **In detail [details at build, step 2; 2026-11-16]:** a value that
+    comes with another is dealt among the places with the same other:
+    - a place's pattern of E cores, among the places with the same core
+      count, in order of how many E cores;
+    - its set of memory latencies, among the places with the same device
+      count, in order of their sum.
+
+    So the mix of cores with their kinds, and of devices with their
+    latencies, is gate 2's too. The scatter nudges each place's field value
+    by up to `map.field.scatter` of the field's range at the places, either
+    way. A world with no map has no fields.
 
 ### 7.4 Wear [gate 5]
 
@@ -854,6 +1080,16 @@ here.
     10 °C, so 0 means no heat effect.
   - **With voltage above the device's maximum.** A big enough spike breaks a
     device at once. The slope is a world setting.
+    - **In doublings, as heat is [2026-11-20, `build-plan-gate5.md` 2;
+      agreed with Damian]:** wear is multiplied by 2^(v × (V − Vmax) ÷
+      100 mV) above the maximum, where v is doublings per 100 mV and 0 is
+      off. A swell wears, and a strike breaks a device at once, whatever
+      the heat numbers. In a straight line it couldn't do both: a slope
+      that let a strike break a device would ruin every device a swell
+      touched. Real anchor: gate oxide wears out exponentially faster with
+      voltage (time-dependent dielectric breakdown). Chosen over the
+      straight line, and over a breakdown voltage of its own, against
+      "burnout is wear's extreme, not a law of its own".
   - **With writes, for disks, per block.** A catalogue number.
   - A slope of 0 turns off wear from that cause.
 - **Wear raises a device's threshold voltage.** Transistor ageing does this
@@ -868,6 +1104,25 @@ here.
   | Link (only one carrying current) | **Its resistance rises,** so it heats more and wears faster, until it fails |
   | Power source | Doesn't wear (4.2) |
 
+- **Memory's weak cells [2026-11-20, `build-plan-gate5.md` 2; agreed with
+  Damian].** Fade acts only while memory is cut out, so on its own it
+  makes no errors on a normal day. As a device wears, the leakiest cells
+  by its leak rank turn weak: their share rises in proportion to its
+  wear, to a set share at the end of its life. While the device is on, a
+  weak cell loses its bit, reading back random, at a set chance a tick
+  (about once a refresh window). The flips are drawn as the cosmic-ray
+  floor's are, a count a tick and then which weak cells, so they cost
+  per flip and land on the same spots every time. Two settings: the weak
+  share at the end of life, and a weak cell's chance a tick. Chosen over
+  the raised threshold alone, which would have dropped the fixed spots.
+- **A link wears by its loss [2026-11-20, `build-plan-gate5.md` 2; agreed
+  with Damian]:** a tick's wear is its loss ÷ its loss at the reference
+  current when new, which is (I ÷ I_ref)² × (R ÷ R₀). Its resistance
+  rises in proportion to its wear, to a set multiple at the end of its
+  life, so its loss and its wear rise with it: the feedback above. Real
+  anchor: lines fail by heating (2003's sagging lines, 11.6). Chosen over
+  wear by current alone, which has no feedback, and over wear by its
+  ends' temperatures, which would follow its neighbours' crowds.
 - **When a disk counts as failed.** A disk fails when its device wear
   reaches its endurance, or when its first block (on the most enduring disk,
   the boot block) passes its write endurance. A visit then replaces it
@@ -890,6 +1145,58 @@ here.
   - Real anchors: cheap flash (SD cards; Tesla's 2021 recall of worn-out
     flash chips), and Linux's UBI and JFFS2, which level raw flash in
     software.
+- **In detail [details at build; 2026-11-20, `build-plan-gate5.md` 2;
+  agreed with Damian]:**
+  - **Wear's arithmetic:** wear is in fixed point, in ticks at the
+    reference conditions; the heat and voltage factors come from tables
+    worked at setup, as the cosmic rate's are, so the tick code stays in
+    integers. Each device's endurance is drawn evenly on a log scale from
+    half to twice its kind's, so like devices under like stress don't
+    fail on the same tick. The threshold rises in proportion to wear, to
+    the set rise at the end of life. A device wears whether on or off,
+    since a cut-out or tripped device still sits at its place's voltage
+    and temperature; a failed one wears no more.
+  - **Disks:** a block is 512 bytes, the boot block's size. Each block's
+    write endurance is drawn evenly on a log scale from half to twice the
+    disk's value. Past it, each bit written to the block lands wrong with
+    a chance that grows in proportion to the writes past its endurance.
+    The flips come when the block is written, at the barrier's disk I/O,
+    not each tick (appendix C).
+  - **Wear levelling, when on:** the OS keeps a map from each disk block
+    to the block holding it. When a block's writes pass the
+    least-written block's by a set gap, the OS swaps the two blocks'
+    contents and places in the map: two writes, counted as wear, at no
+    thread's cost. The disk fails when the block holding offset 0 passes
+    its endurance, wherever levelling has put it. Levelling is one world
+    switch, as every OS value but the page size and strictness is (9.6).
+  - **Links [details at build, step 5; 2026-11-20,
+    `build-plan-gate5.md` 11]:** each link's endurance is drawn evenly
+    on a log scale from half to twice the links' value, as a device's
+    is, so the links of one source don't fail on one tick. Link wear
+    follows the world's wear rate as device wear does, and a link
+    endurance of 0 turns link wear off alone. The rise in resistance is
+    taken in 4,096 steps over a life, so the solve's conductances
+    change at most that often.
+  - **As built [details at build, steps 2 and 3; 2026-11-20,
+    `build-plan-gate5.md` 11]:**
+    - every kind's threshold rises with wear, not only a core's; worn
+      memory fades as new memory would at a voltage lower by the rise;
+    - a worn core draws by its worn speed, so it draws less as it
+      slows;
+    - a failed device's ticks are counted as failed, not as cut out or
+      tripped, so those counts keep their meaning;
+    - a threshold rise so large that a worn device could never restart
+      under its maximum is refused when the world is built;
+    - a write of any length inside a block is one write to it, and a
+      write across blocks is one to each; a write torn by a cut-out
+      still counts;
+    - "past its endurance" means more writes than it: a block of
+      endurance N takes N clean writes. The chance a bit lands wrong is
+      capped at one in two;
+    - a worn boot block fails its disk even with wear by time off;
+    - levelling's swaps are whole-block writes: they can flip bits on a
+      worn block, and never set off another swap. Ties for the
+      least-written block go to the lowest-numbered.
 - **Programs see wear only partly.**
   - SENSE reports a device's speed, so a worn processor shows as slow.
   - SENSE reports each device's nominal threshold, not its worn one (R25).
@@ -938,6 +1245,12 @@ here.
     back random.
   - **What counts as a "result":** each instruction's result written to a
     register or memory, and each byte CPY moves.
+    - **In detail [details at build, step 4; 2026-11-11]:** one result per
+      value written: to A–D, to memory, to the stack, or to IP by STO, SWP,
+      POP or a jump that's taken. SWP with a register or memory writes two.
+      The neutral bytes write nothing and so can't go wrong: MOV A, STO A,
+      SWP A, a store to #, POP #, and the spare slots. A wrong register
+      result has one of its 32 bits flipped; a wrong byte, one of its 8.
 - **A small floor, even in mid-range.** Every result a device gives has a
   tiny chance of being wrong: a floor per kind, in the catalogue, with 0
   meaning none.
@@ -948,16 +1261,77 @@ here.
     normal conditions.
   - The engine draws the number of results until the next wrong one and
     counts down, rather than drawing once per result (appendix C).
-  - **[open]** Whether to vary the floor per device through the scatter, so
-    a few parts are flaky, as in real fleets.
+  - **Flaky parts [gate 5; 2026-11-20, `build-plan-gate5.md` 2; agreed
+    with Damian; one of the four mechanics he chose that day].** Each core
+    and memory device is flaky with a set chance (2%), drawn when it is
+    built and again when it is replaced (7.3). A flaky device's floor is
+    its kind's times a factor drawn evenly on a log scale between two
+    settings (3 to 100); in memory the factor multiplies the cosmic-ray
+    rate at that device, a falling rate included. The rest keep their
+    kind's floor, so most places are as before and a few are stark.
+    - **With wear,** a core's floor rises in proportion to its wear, to
+      a set multiple of its own at the end of its life (10 times; 1 is
+      none).
+      Memory's wear makes errors by its weak cells (7.4).
+    - SENSE doesn't read it: a program finds a flaky part only by its
+      errors, as a real fleet does. The observers record each device's
+      factor.
+    - A share of 0 is off. Real fleets' share is nearer a few in a
+      thousand, but at that share a 48-place seed, about 380 cores and
+      memory devices, would have one flaky part or none.
+    - Real anchors: the silent data corruption above, and Google's "Cores
+      that don't count" (2021), which saw some get worse with age.
+    - Chosen over a spread on every device, which moves every place's
+      mutation rate a little, and over a floor following a field, which
+      makes a flaky region rather than a few bad parts. This settles what
+      was open here: whether to vary the floor per device.
 - **The cosmic-ray floor: rare flips in all memory.** Each bit has a chance
   per tick of flipping. It's a classic flip, with no shielding, and a
   sliding scale with 0 meaning off.
   - "Static" means only the random bytes memory and disk start with (10.1).
     The ongoing flips are "the floor".
   - The rate waits on a test.
+  - **A falling rate (agreed with Damian 2026-11-18, and built that day on
+    his word; off by default).** The young Earth took harsher radiation
+    than today, from a more active Sun and with no ozone layer. The rate
+    starts at `noise.cosmic_start` and falls to `noise.cosmic`, its excess
+    over it halving every `noise.cosmic_half_life` ticks, in eight steps a
+    half-life. It is fixed before the run and depends only on the tick, as
+    the sources' schedules do. A start of 0 is no fall.
+    - Why: a high rate early means fast change, but only short programs
+      survive it (the error threshold, below). As it falls, longer
+      programs become possible.
+    - It falls only to a floor that still keeps full places turning over.
+      At the runs' rate a sleeping thread's registers take a wrong bit
+      about every 5,200 ticks (7.6); at the default rate, a thousand
+      times lower, that would be about every 5 million, and full places
+      would come close to freezing as at gate 2's first answer (14.1).
+    - A change of rate redraws each device's countdown, as a change of
+      clock level does, so the rate stays exact. The rates are a table
+      worked once at setup, so the tick code stays in integers.
+    - Memory's edge errors stay on the floor: they are the device's, not
+      the sky's.
+    - Tests: the flips follow the curve tick by tick; a start equal to the
+      floor gives the same flips as no fall; a world with the fall hashes
+      the same on 1 and 24 threads, and resumed from a snapshot just
+      before a step and one between steps.
 - **The error threshold.** The floors and the edges together must stay well
   under one error per copy of a typical program (Eigen's error threshold).
+- **The floors in detail [details at build, step 8; 2026-11-11]:**
+  - **The clock's effect:** the rate per result is the kind's floor times
+    2^((k − 10) ÷ d), for a clock level k in tenths of stock. d is a setting
+    (`noise.clock_doubling`, placeholder 1 tenth): at 1.5 times stock a core
+    makes 32 times the errors, and at half stock a thirty-second.
+  - **A change of level redraws the core's countdown.** A countdown at a
+    fixed rate has no memory, so the redraw keeps the rate exact.
+  - **The draw** is a geometric gap from a fixed-point log2, in integers
+    only, from the core's own stream for the tick.
+  - **The cosmic-ray floor** counts down bit-ticks per memory device the
+    same way. So it's exact per bit and per tick, and costs only per flip.
+    It covers memory, not disks. A flip in the reset region counts as a
+    write to it, so it can wake a halted core.
+  - **Edge errors aren't built at gate 1.** The supply is steady and in
+    mid-range there; they come with the varying supply at gate 2.
 
 ### 7.6 Failure, and what a cut-out loses
 
@@ -974,6 +1348,14 @@ here.
 - **a network device:** the place can't send, receive or forward;
 - **a cooling device:** the place runs hotter;
 - **a link:** it carries nothing until it's replaced (11.6).
+
+**In detail [details at build; 2026-11-20, `build-plan-gate5.md` 2;
+agreed with Damian]:** a failed device draws nothing and cools nothing,
+and SENSE reads 0 for it in every reading but its kind. A thread ended by
+its core failing has the cause "failed device" (13.1), the cause already
+named for memory, now for every kind. Wear's failures come in step 4 of
+the tick (appendix C), devices in their order at each place, then links
+in link order. A failed link carries no power, no data and no heat.
 
 **Every kind of hardware has two failure states:** power too low (an
 outage) and power too high (a surge). Both are the two ends of each
@@ -1007,7 +1389,9 @@ stores:**
     replicators.
 
   Both are tested at gates 1 and 2. The fallback is to pause instead of
-  crashing.
+  crashing. Gate 2 builds it as a switch (`os.cutout_pause`), off by
+  default, so the origin regression can try it without a rebuild
+  [2026-11-14, `build-plan-gate2.md` 2; agreed with Damian].
 
 ### 7.7 Cooling devices [gate 4]
 
@@ -1022,6 +1406,11 @@ stores:**
 - **It has the common fields that apply** (7.1). It has its own range, and it
   wears and fails (fans are moving parts). When a hot place's cooling fails,
   the place overheats until the next visit.
+- **In detail [details at build; 2026-11-19, `build-plan-gate4.md` 2;
+  agreed with Damian]:** its cooling rises evenly from nothing at its
+  start temperature to its full rate at its top temperature, and its draw
+  rises with it. Below its voltage threshold it cools nothing. It doesn't
+  wear or fail until gate 5.
 
 ### 7.8 Maintenance visits and respawning places [gate 5]
 
@@ -1065,6 +1454,38 @@ stores:**
   place.
 - **Not a reaction to the world.** The timing is fixed before the run, and
   what a visit does depends only on the hardware's state.
+- **Replacing the reset region's device is a hot swap, not a cold start
+  [2026-11-20, `build-plan-gate5.md` 2; agreed with Damian].** The region
+  comes back as static, idle runs start again, and port 0's queue, kept
+  while the region was gone (R6), runs. The boot block doesn't run, and
+  programs on other devices carry on. The failure has already ended what
+  the device held (7.6). The cold start is power's rule (10.5); the
+  visit is a hot swap. Chosen over a cold start, which would be the
+  reboot visit below in a narrow form.
+- **Visits in detail [details at build; 2026-11-20, `build-plan-gate5.md`
+  2; agreed with Damian]:** each place's next visit is drawn from the
+  seed, its id and its visit count. A gap is the mean × (the regularity
+  + (1 − the regularity) × an exponential draw of mean 1), and the mean
+  is scaled by the density tie: mean × (the place's density ÷ the
+  average)^(−tie). "A large enough share of a place's devices" (below)
+  counts devices, every kind alike; links don't count.
+- **Visits as built [details at build, step 4; 2026-11-20,
+  `build-plan-gate5.md` 11]:**
+  - a visit happens in the place's own tick, after the tick's voltage
+    is known and before the device states. A new device whose place is
+    under its threshold then starts off, and comes on when the power
+    returns; for the reset region's device that later return is a cold
+    start, which is power's rule and not the visit's;
+  - a place's density, for the tie, is the map's density to the power
+    of the place's rank by the density field (1 at the sparsest, the
+    map's density at the densest). With no map or no fields every place
+    has the world's mean;
+  - like for like needs wear by time on, and looks at device wear, not
+    at a disk's block writes. A disk replaced like for like gets new
+    blocks and keeps its bytes and its boot block's writer; memory gets
+    new leak ranks, so its weak cells will be other cells;
+  - a new device keeps its slot's temperature;
+  - a place also stores its visit count and its last visit's tick.
 - **A possible lever, not built:** a visit that reboots a place (a
   maintenance window), using the existing cold start. It's held in reserve
   in case gate 2 shows full places don't turn over (14). It would break
@@ -1093,6 +1514,57 @@ stores:**
   - **The new place keeps the old id's visit schedule,** which is seeded by
     id.
   - **Observers** see an incarnation number on each place id (13.1).
+- **In detail [details at build; 2026-11-20, `build-plan-gate5.md` 2;
+  agreed with Damian]:** the new point is drawn from the seed, the id and
+  the incarnation, by the density field at the spacing the map settled on
+  (6.1); a point that doesn't fit is drawn again, up to a cap, after which
+  the place stays where it was with fresh hardware. Both link sets are
+  worked out again where the Gabriel rule's answer changed; a landmass
+  left with no bridge gets its shortest crossing, as the map's setup joins
+  landmasses (6.1); new links' bandwidths and resistances come from their
+  fields. Messages on the wires of links that are gone are lost, and
+  counted. The new place starts at the outside temperature, with static in
+  memory and on disk and an empty port 0 queue, and takes its values as
+  7.3 says. At a respawn the place's colonies and holds end for the
+  observers, and the new place starts with none.
+- **Respawning as built [details at build, step 6; 2026-11-21,
+  `build-plan-gate5.md` 11]:**
+  - **When:** a teardown is the first of its tick's inputs, before the
+    links' mends and cuts and before the solve (appendix C, 1), in
+    place order. The devices counted for the share are the place's
+    cores, its memory devices, its disk and its cooling device if it
+    has them, and its network device.
+  - **Teardown:** every program and thread at the place ends, with the
+    cause "failed device" (13.1), and those are counted apart. At a
+    share of 1 nothing living is left to end. The id keeps its
+    programs' numbering and its counters.
+  - **The new point:** up to 1,000 draws, then the place is built again
+    where it was. On a test map (a grid, a line, none) it stays where
+    it is.
+  - **Links:** a link between two places that haven't moved is the link
+    it was: its values, its wear, its failed state, its cut schedule
+    and its queues. A new link reads its field at its middle, with a
+    scatter of its own, and takes the value setup dealt to the nearest
+    field value, as a place's values do (7.3), so the world's mix of
+    link values stays setup's. Its cut schedule starts at the respawn's
+    tick. The mean link length stays setup's, so the cut chances and
+    delays of surviving links don't shift.
+  - **Bridges** keep the two shore points setup gave them. Each end
+    joins the nearest place on its own landmass. A landmass left with
+    no place has no bridge end. One that gains its first place, or is
+    left with no way to the rest, gets the shortest crossing to another
+    peopled landmass, kept from then on. Landmasses setup left alone
+    stay alone.
+  - **Sources** stay setup's in time and on the map. Each joins the
+    place whose catchment its cell is in now.
+  - **Visits:** the id's schedule doesn't depend on whether it
+    respawned; its pace follows the density at the new point.
+  - **Messages:** one queued or waiting at a surviving place for a link
+    that is gone waits on there and takes the new route (11.6); at a
+    lifetime of 0 it is lost.
+  - **The incarnation** is kept by the world and saved, with the tick
+    of each place's first respawn. The observers read it from the log
+    of respawns; no record holds it (13.1; Damian: "Yes, log only").
 - Over long runs the most punished ground is abandoned, and the network
   rebuilds itself elsewhere. The density field keeps towns and countryside,
   on average, where they were.
@@ -1244,8 +1716,44 @@ semantics of every instruction are in appendix A.
   - "kill P", "read P's memory" or "give me P's core";
   - the OS restarting, moving or rescuing programs unasked.
 
-  Linux's out-of-memory killer is the real example to avoid. In Nova 2,
-  when memory is full, requests fail and nobody is killed.
+  Linux's out-of-memory killer was the real example to avoid: in Nova 2,
+  when memory is full, requests fail and nobody is killed. That still
+  holds for a place that is full for a while. Since 2026-11-20 a place
+  kept crowded loses a program, by the narrow amendment below.
+- **Amended [2026-11-20, `build-plan-gate5.md` 2, gap 14; Damian's
+  decision, gate 5]:** a fixed rule may act on a program by what it
+  holds, or on a thread by how it runs, the same way for all, never by
+  its id, lineage or kind. Two rules use it, each with an off:
+  - **The out-of-memory killer.** A place is crowded when its free memory
+    is under a tenth (13.3). When it has been crowded for a set time (a
+    day), the OS ends one program there, at the barrier, and the place's
+    clock starts again. The program is drawn by bytes held, stacks
+    included, from the place's stream: each byte equally likely, so a big
+    holder is likeliest but never certain. Every thread ends, its memory
+    is freed with its bytes left, and the cause is "out of memory"
+    (13.1). Real anchors: Linux's out-of-memory killer, which scores
+    processes by the memory they hold; Kubernetes evicting pods when a
+    node runs short; and in ecology, viruses that keep the fastest-growing
+    bacteria from taking over (Thingstad's kill-the-winner).
+  - **The watchdog.** Each thread counts the cycles it has run since its
+    last call, any call. Past a set count (a million cycles, ten times
+    the idle-run cap, so a thread that copies never trips it) it takes a
+    new fault, "watchdog" (9.5, A.3), which a handler can catch; with no
+    handler the thread ends with that cause.
+  - **Why:** late worlds thinned to one program a place holding hundreds
+    of threads (gate 3's seed 15) or over a thousand (`runs/open-2`), so
+    no core was idle and nothing else was born there. The killer checks
+    that; the watchdog alone wouldn't, since those threads call SEND and
+    SPAWN. Drawing by bytes, rather than always ending the biggest
+    holder, keeps the second biggest from being the safe size to be.
+  - **What stays ruled out:** "kill P" for a P the OS picks by who it is,
+    and restarting, moving or rescuing programs.
+  - **The risk 9.1 guarded against stays:** a rule that ends big holders
+    is a selection pressure designed in. Gate 5's comparison run, with
+    the four mechanics off, tells its effect from life's (14.1).
+  - Chosen over the watchdog alone with 9.1 kept, which leaves fan-out
+    untouched, and over a fair share of cores by program, which would
+    reverse 9.5's "the main lever is the number of threads".
 - **Every OS service passes the no-bootstrap test** (principle 12).
 
 ### 9.2 The call table
@@ -1267,7 +1775,7 @@ semantics of every instruction are in appendix A.
 
 | # | Call | Arguments → result | Effect |
 |---|---|---|---|
-| 0 | ALLOC | size, permission, device → address or 0 | Reserve memory. Permission is data, executable or both. Device picks by speed (6.3). Placed by size class (9.3) |
+| 0 | ALLOC | size, permission, device → address or 0, in A and D | Reserve memory. Permission is data, executable or both (data is both on a lax place). Device picks by speed (6.3). Placed by size class (9.3) |
 | 1 | FREE | address → 1 or 0 | Give back an allocation your program holds |
 | 2 | PROTECT | address, permission → 1 or 0 | Change a page between data and executable. Works only if your program holds every allocation in the page (9.3) |
 | 3 | SPAWN | address, starting value → thread id or 0 | Start a thread on an executable page your program holds. Inside the allocation holding your own IP, it's your thread. In any other allocation you hold, that allocation passes to a new program (9.4) |
@@ -1294,14 +1802,21 @@ Their designs are in 9.5.
 **Idle runs.** Code running in the reset region with no program (10.2) can
 use only:
 
-- SENSE and SEND, which need no owner. A SEND from an idle run has no sender
-  program, so a birth from it starts a new lineage (13.2);
+- SENSE, which needs no owner;
 - ALLOC, FREE and PROTECT, on what the run itself holds;
 - SPAWN into what it holds, which creates a program (9.4);
 - DREAD (a booted second stage reads the disk this way, 10.5).
 
 Every other call fails soft, DWRITE included, so junk can't overwrite the
 disk.
+
+**Not SEND [2026-11-17, `build-plan-gate3.md` 11 step 8; Damian].** An
+idle run's SEND fails soft too, so code leaves a place only in a program's
+SEND. Gate 3's flood test found bytes that SENT themselves from port 0 to
+port 0 without becoming a program, filling the queues and taking the cores
+static needed (10.4). A setting lets idle runs SEND, as before; then a SEND
+from an idle run has no sender program, so a birth from it starts a new
+lineage (13.2).
 
 **SENSE reads only what's local:**
 
@@ -1373,9 +1888,18 @@ place.
     compilers map whole pages for their code.
 - **Strict and lax places.** Whether a page may be writable and executable
   at once (W^X) is an OS value per place (9.6).
-  - On a lax place, a copier allocates "both" and skips PROTECT. Copying is
-    cheap, and injection is easy.
-  - On a strict place, ALLOC with "both" fails, and the reverse holds.
+  - **A lax place has no no-execute bit** [2026-11-13, the design review
+    after the origin test's levers; agreed with Damian]. Any page a program
+    can read, it can run, as on x86 before NX (2004). So ALLOC's and
+    PROTECT's "data" give "both" there. "Executable" still gives read-only
+    code, so a program can still protect its code from being written.
+    - Why: a copier's ALLOC takes its permission from B, and B often holds
+      its own address, so before this a copier worked only where that
+      address was 2 mod 3 ("both"): a third of pages for the copiers found.
+  - On a lax place, a copier allocates "both" (or "data") and skips PROTECT.
+    Copying is cheap, and injection is easy.
+  - On a strict place, ALLOC with "both" fails, and the reverse holds. Data
+    pages there don't run.
 - **Nothing is zeroed.** A dead program's pages go back to the free pool
   with their bytes intact. ALLOC hands out dirty memory: a corpse's code, old
   data, or static. A program that wants clean memory zeroes it itself.
@@ -1386,6 +1910,25 @@ place.
   - *Prediction:* ALLOC with permission "executable" can return a dead
     program's code, and a SPAWN there is a birth with no copy at all. On a
     strict place it may be the cheapest birth.
+- **The allocator in detail [details at build, step 3; 2026-11-11].**
+  - **Size classes:** 8 bytes, then two per doubling (16, 24, 32, 48, 64,
+    96, ...) up to the page size. A setting (`memory.class_steps`) gives
+    powers of two only. An 18-byte program takes a 24-byte slot.
+  - **Larger allocations take whole pages** (rounded up), never shared, up to
+    the largest allocation (`memory.max_alloc`, placeholder 4,096 bytes, at
+    least a page). That's ALLOC's "largest size class" in appendix A.
+  - **First fit by address:** the lowest page on the device with a free slot
+    of that class and permission, else the lowest free page; the lowest free
+    slot in it. A whole-page allocation takes the lowest run of free pages.
+  - **A slot's padding and a page's tail** belong to no allocation. Access is
+    by page, so whoever holds any slot in the page can touch them.
+  - **PROTECT on a multi-page allocation** changes only the page named; a
+    strict program bigger than a page protects each page.
+  - **The reset region** takes whole pages at the start of its device (after
+    page 0 if that's where it is). Only idle runs may touch it: programs hold
+    no allocation there, so by access-by-page they can't.
+  - **"Free memory"** (SENSE) counts free pages and free slots, not the
+    tails.
 - **The disk is raw and unowned (R14).**
   - DREAD and DWRITE take any offset in the place's disk space (the disks
     laid end to end, 6.3). There is no disk allocation, and no disk
@@ -1396,6 +1939,12 @@ place.
   - DWRITE needs a thread. Idle runs may DREAD but not DWRITE (9.2).
   - **Disk I/O completes at the tick's barrier,** in a fixed order (by core
     index, then request order). The thread sleeps until then.
+  - **In detail [details at build, step 7; 2026-11-11]:** the count done
+    lands in A at the barrier. The disk's latency (placeholder 20,000
+    cycles) plus a cycle per byte is then paid from the caller's next
+    quantum. A length of 0, or a place with no disk, answers 0 at once. An
+    idle run's DREAD waits for the barrier with its core doing nothing; if a
+    thread takes the core first, the DREAD is forgotten.
   - The boot block is the first block (10.5).
   - Real anchor: a disk with no file system, which is where boot-sector
     viruses lived.
@@ -1418,6 +1967,13 @@ place.
   - A SPAWN into any allocation where one of the caller's program's threads
     is running also starts a thread, never a gift. So an allocation in use
     is never given away.
+  - **Page sharing counts as running there** [2026-11-12, after the third
+    origin run; agreed with Damian]. On a lax place a thread can run past
+    the end of its allocation, in the rest of a page it may use by holding
+    that allocation. A thread whose IP is in no allocation of its own runs
+    on every allocation its program holds in that page. Otherwise a program
+    could give its own running code away: the hand-overs of
+    build-plan-gate1.md 11, which looked like copies and weren't.
   - Real threads run inside their process's image, and running a different
     image makes a new process.
 - **So copies are separate programs.** ALLOC, CPY and SPAWN produce offspring
@@ -1432,6 +1988,47 @@ place.
   - A thread's saved registers live there between turns. So they fade and
     corrupt with their memory, and an overrun into a stack can rewrite a
     sleeping thread's state.
+  - **A thread ends when a bit of its saved state fails** [2026-11-14,
+    `build-plan-gate2.md` 2, for fading; widened 2026-11-16 to every way
+    a bit fails, `build-plan-gate2.md` 11 step 10; agreed with Damian].
+    - Its saved state is its saved registers while it is off its core,
+      and the frame of a handler it is in, on its core or off (A.4).
+    - A bit fails when it fades, takes a cosmic-ray flip or has an edge
+      error, whatever it then reads back. That is appendix B's "failing
+      past use", and the cause is memory.
+    - Without it, a thread asleep until an interrupt that never comes
+      would hold its memory until a cold start. Fading alone was too rare
+      to stop that: gate 2 failed with it and passed with the wider rule
+      (14.1). At the runs' cosmic floor, a sleeping thread's 192 bits of
+      registers take a wrong bit about every 5,200 ticks.
+    - An overwrite only corrupts the state, which the thread reads when it
+      next runs. A thread on its core holds its registers in the core, so
+      a failed bit in their old copy in its stack doesn't end it.
+    - The switch `os.saved_state_fails` (on by default) narrows the rule
+      back to fading, so gate 2's first run can still be run as it was.
+  - **A thread that ends while its program lives on gives its stack back**
+    [details at build, step 5; 2026-11-11], as real threads' stacks are
+    freed when they exit. Otherwise every ended thread would leave its stack
+    held for the program's life.
+  - **A live thread's stack is in use** [2026-11-19, after the bug scan
+    of gate 3's worlds; agreed with Damian]. It follows R15: an allocation
+    in use is never given away.
+    - A SPAWN into the stack of a live thread of the caller's program, the
+      caller's own included, starts another thread of that program, never
+      a gift.
+    - A FREE of it fails.
+    - So a thread's saved registers always lie in memory its program
+      holds, and its end frees its own stack and nothing else.
+    - Why: the OS writes the saved registers at the stack's address each
+      time the thread leaves its core. Before, a program could give a
+      sibling thread's stack to a new program, or free it, and those 24
+      bytes then went into memory another program held, on a strict place
+      too; and if the same program's next allocation landed there, the
+      thread's end freed it. It was rare: 48 of about a million threads in
+      gate 3's saves (`nova2 check` counts them).
+    - The switch `os.stack_held` (on by default) brings the old rule back,
+      so gate 3's runs can still be run as they were. A world saved under
+      the old rule keeps the threads it had in that state until they end.
 - **OS records are protected infrastructure (R16).** These are ownership
   and allocation tables, scheduler queues, routing tables, and queue and
   inbox bookkeeping. They live outside simulated memory, and never fade.
@@ -1462,6 +2059,29 @@ place.
   - Whether a full place keeps turning over is gate 2's question (14). If
     it doesn't, the lever in reserve is a visit that reboots a place
     (7.8).
+  - **Gate 2's first answer: no, not by the physics as written**
+    [2026-11-15, `build-plan-gate2.md` 11 step 9;
+    `design-review-gate2-2026-11-15.md`, agreed with Damian].
+    - Gate 1's frozen places came back, and only cold starts ended them.
+    - The saved-state rule rarely fires. Memory fades only in blackouts and
+      the deepest drop-outs, and those cold-start the place anyway.
+    - The review's answer is to widen the rule from "fades" to "fails":
+      a thread ends when any bit of its saved state goes wrong by the
+      physics, whether it fades, takes a cosmic-ray flip or has an edge
+      error. An overwrite still only corrupts it.
+    - The widened rule is built behind a switch (`os.saved_state_fails`,
+      off by default) and tried in a pilot. It becomes the rule only if
+      the pilot bears it out. The reserve lever stays in reserve.
+  - **Gate 2's second answer: yes, with the widened rule** [2026-11-16,
+    `build-plan-gate2.md` 11 step 10; agreed with Damian].
+    - Gate 2's first run again, with the widened rule on, passed every
+      part of the mark: every counted window turned over, every crowded
+      one too, and stage 4 came in 13 of 20 seeds (14.1).
+    - Every program alive at a window's start died within it: none lasted
+      200,000 ticks. What lasts is lineages, by copying, with holds of up
+      to 3.6 million ticks.
+    - The widened rule is now the rule, on by default. The reserve lever
+      stays in reserve.
 
 ### 9.5 Threads, scheduling and interrupts
 
@@ -1506,6 +2126,30 @@ place.
     both 2009) serialise threads in fixed quanta the same way.
 - **A long instruction** (a big CPY) runs whole. Its time comes out of the
   thread's turn, and any overrun is repaid in its next turn (R29).
+- **The scheduler in detail [details at build, step 6; 2026-11-11]:**
+  - **Time** is kept at each core's stock speed. A thread at clock level k
+    (tenths of stock) gets k/10 of the cycles in the same time. A new
+    SETCLOCK level takes effect from the thread's next quantum.
+  - **A thread runs while its quantum has time left.** The last instruction
+    may overrun; the overrun is the thread's debt, taken first from its next
+    quantum. A call that costs more than a quantum (SPAWN) works the same
+    way, so a SPAWN keeps its thread off the core for about a tick.
+  - **A thread that leaves mid-quantum** (by sleeping, waiting, yielding,
+    ending or faulting) leaves the rest of the quantum to the next ready
+    thread, which pays a switch (placeholder 1,000 cycles, plus 500 if the
+    clock level changes).
+  - **At a turn's end** the thread goes to the back of the queue only if
+    another thread is waiting for that core. Alone, it carries on without a
+    switch.
+  - **The ready queues:** one for unpinned threads and one per pinned kind,
+    ordered together by when each thread became ready. A pin to a kind with
+    no working core falls back to any.
+  - **Interrupts** are delivered one at a time, when the thread starts a
+    quantum: low voltage first, then arriving data, then timers. Timers fire
+    at the start of a tick. An interrupt wakes a thread waiting in SLEEP 0;
+    a thread in SLEEP n or a RECV wait takes it when it next runs.
+  - **A ready thread takes the core from an idle run** at the start of a
+    quantum.
 - **Every call, thread switch and fault costs time.** Asking the OS is
   never free.
 - **Clocks are per turn.** A thread's SETCLOCK applies only during its own
@@ -1520,12 +2164,27 @@ place.
     a crossing. The saved IP points past the faulting instruction, so HRET
     goes on after it. A fault inside a handler ends the thread. Only that
     thread is affected, so a program with several threads survives one
-    fault;
-  - **arriving data** on a given port;
+    fault. From gate 5 the watchdog is a fault too (9.1);
+  - **arriving data** on a given port [2026-11-16, `build-plan-gate3.md`
+    2; agreed with Damian]:
+    - a message goes first to a thread waiting in RECV on that port (the
+      one that has waited longest, 11.2), and then no interrupt is raised;
+    - otherwise it joins the inbox, and every thread with a data handler
+      for that port gets the interrupt pending. The first of them to RECV
+      gets the message; the others find what's left;
+    - a pending interrupt is raised once, however many messages join
+      before the thread takes it;
   - **a timer,** with a period in ticks;
-  - **low voltage:** it fires once, for the thread running on the core, as
-    the core's voltage nears its cut-off. The margin is a setting
-    [gate 4] (12.4).
+  - **low voltage** [gate 4] (12.4): a thread takes it when it starts a
+    quantum on a core whose voltage is within the margin of that core's
+    cut-off. The margin is a setting.
+    - It fires once for a thread, and again only after the voltage has
+      been back above the margin [2026-11-19, `build-plan-gate4.md` 2;
+      agreed with Damian]. Before, it went to "the thread running on the
+      core" as the voltage neared the cut-off. But the voltage changes
+      once a tick and a turn is a quarter of one, so in a crowded place
+      that thread was rarely the one on the core when it cut out.
+    - It wakes nothing. A thread asleep or waiting is safe already (7.6).
 
   HRET returns from a handler.
 - **Waiting is the program's own choice:**
@@ -1551,11 +2210,12 @@ place.
 ### 9.6 OS variety
 
 - **Each place's OS has its own values,** drawn from fields over the map
-  with a little scatter and steep drop-offs (6.2). They're set when the place
-  boots and never change.
+  with a little scatter and steep drop-offs (6.2; how, 7.3). They're set
+  when the place boots and never change.
 - **What varies:**
   - the page size, from a short list;
-  - the writable-and-executable rule, strict or lax.
+  - the writable-and-executable rule, strict or lax (a lax place has no
+    no-execute bit, 9.3).
 
   Programs can read both (SENSE, R25). Everything else is global, including
   the turn length (one world setting) and call costs.
@@ -1627,7 +2287,22 @@ INJECT. Nova 2 breaks isolation only in the three ways real machines do:
      - Past the memory device's threshold, the pages immediately before and
        after it in the same device get bit flips. The flip chance grows with
        the excess. The flips are drawn from the seeded RNG at the tick's
-       end, and the counts reset.
+       end. The counts are kept over a refresh window, as appendices C and
+       E have it, and reset at its end [2026-11-20, `build-plan-gate5.md`
+       2; agreed with Damian. Before, this said the counts reset each
+       tick, which would make the threshold about one activation a tick].
+     - **In detail [details at build; 2026-11-20, `build-plan-gate5.md`
+       2; agreed with Damian]:** an activation is what the engine's
+       access counters count: a data access to a page other than the one
+       the thread last touched on its core this tick, and a CPY once for
+       each page. Each page's window count is kept beside the per-tick
+       count memory's draw uses; the window is aligned to the tick and the
+       same for the whole world. A memory device's threshold follows its
+       latency on its curve, fast memory lowest (newer, denser chips flip
+       sooner). At a tick's end, each activation past the threshold in
+       the window flips one bit in the page before and one in the page
+       after, in the same device, each with the strength as its chance:
+       the count drawn, then the bits.
      - The threshold is set per unit of simulated time and scaled by the
        tick (R9), so changing the tick's length doesn't change the physics.
      - A slider sets the strength, with 0 meaning off.
@@ -1717,6 +2392,19 @@ no handlers, so it dies quickly when it scribbles.
   - Meanwhile idle cores halt and arrivals wait in port 0's queue (R6).
 - **Observers measure the regions themselves (R4):** how compressible each
   region is, and how many SENDs come from idle runs per sample (13.1).
+- **Idle runs in detail [details at build, step 7; 2026-11-11]:**
+  - **The step must share no factor with the region's size,** so every byte
+    becomes a start spot; setup refuses a step that doesn't. Each core's
+    first spot is an equal share of the region further on.
+  - **An idle run runs at stock speed.** Its cap counts all its cycles: its
+    instructions, its calls, and its DREAD's latency.
+  - **A halted core looks for a reason to start** at the start of each
+    quantum: the region's write count has moved since it halted, or the
+    retry is due. Its own writes before halting don't count.
+  - **Halted is a core's state, not a run's.** A core that a ready thread
+    took while halted is still halted when the thread leaves. A core whose
+    run was ended by a thread starts a fresh run at its next spot when it's
+    next idle.
 
 ### 10.3 A birth, step by step
 
@@ -1724,8 +2412,8 @@ no handlers, so it dies quickly when it scribbles.
 2. An idle core runs it from its spot. Most bytes crash within a few
    instructions. The core halts, and restarts at its next spot when
    something changes (10.2).
-3. Bytes that copy themselves within the region, or send themselves on with
-   SEND, spread.
+3. Bytes that copy themselves within the region spread. They can't SEND
+   themselves on: an idle run may not SEND (9.2).
 4. **An idle run that ALLOCs holds what it gets.** If memory is short, the
    call just fails, and nothing is created.
 5. **It copies itself into its new memory and SPAWNs there.** That creates a
@@ -1749,6 +2437,13 @@ no handlers, so it dies quickly when it scribbles.
   - It then runs the payload from its first byte, as a fresh idle run (a
     "prompt run"), with the registers pointing at the landing spot.
   - An arrival never pre-empts a live thread or an idle run in progress.
+- **Arrivals share the cores with static [2026-11-17,
+  `build-plan-gate3.md` 11 step 8; Damian].** Arrivals from other places
+  hold at most a set share of a place's cores at once (a setting, half),
+  rounded down but at least one. While they hold it, a core that comes
+  free runs static instead, and a halted core stays halted. A boot block is
+  never held back. Why: in gate 3's flood test, arrivals took every core
+  that came free, and static, and the origin with it, starved.
 - **So migration needs spare core time, not just free memory.** A place
   whose cores are all busy with threads runs no arrivals, however well
   adapted they are. That's an absolute barrier to settling, and gate 3 tests
@@ -1756,10 +2451,11 @@ no handlers, so it dies quickly when it scribbles.
 - **What travels:**
   - **complete replicators,** which must ALLOC, copy themselves out and
     SPAWN. Compact genomes travel best;
-  - **code that never becomes a program,** which only sends itself on, since
-    idle runs may SEND (R4). It pays no SPAWN, appears in no lineage, and
-    may spread before any program does. It's also what carries bytes between
-    reset regions, which origins may need. Observers count it (13.1).
+  - **code that never becomes a program,** which only sends itself on, if
+    idle runs may SEND (a setting, off since 2026-11-17, 9.2). It pays no
+    SPAWN, appears in no lineage, and may spread before any program does.
+    Observers count it (13.1). With it off, bytes move between reset regions
+    only in what programs send.
 
 ### 10.5 The boot block
 
@@ -1773,6 +2469,26 @@ no handlers, so it dies quickly when it scribbles.
   of the memory device holding the reset region. That's a discrete event,
   not a judgement on gradual fading. On a cold start, the place puts its
   boot block at the head of port 0's queue, to run like an arrival (10.4).
+- **A heat trip ends in one too** [2026-11-19, `build-plan-gate4.md` 2;
+  agreed with Damian]. When the memory device holding the reset region
+  trips on heat and then cools to its cool-down point (5), the place
+  cold-starts, as it does after an outage. The device went off and came
+  back, whatever turned it off.
+- **A replacement doesn't** [2026-11-20, `build-plan-gate5.md` 2; agreed
+  with Damian]. When that device fails and a visit replaces it, the visit
+  hot-swaps it (7.8): the region comes back as static, and the boot block
+  doesn't run.
+- **A cold start reboots the place's OS** [2026-11-14,
+  `build-plan-gate2.md` 2; agreed with Damian]. Every program and thread
+  ends, with the cause "cold start", every allocation is freed with its
+  bytes as fading left them, and idle runs start afresh. Then the boot
+  block runs. R16 holds while the power is on.
+  - So even a short dip below the reset region's threshold reboots the
+    place, though most of memory still holds. Real anchor: a PC that loses
+    power for a moment reboots, though its DRAM keeps most of its contents
+    for seconds (the cold-boot attack, Halderman and others, 2008).
+  - Port 0's queue and prompt runs are built at gate 2 for the boot block;
+    arrivals from other places join them at gate 3.
 - **So booting is migration from the place's own past.**
   - Any program that can migrate can boot. The only new behaviour is one
     DWRITE of itself to offset 0.
@@ -1807,17 +2523,24 @@ This is the first build target, and it gates everything else (R8).
 - **The question:** does a program lineage arise from static, under the 22
   instructions and 16 calls, with nothing seeded? Code that only sends
   itself on doesn't count.
-- **The target length.** The traced shortest replicator is 18 bytes on a lax
-  place, and 24 on a strict one with 64-byte pages (appendix A).
+- **The target length.** The traced shortest replicator is 14 bytes on a lax
+  place (11 where its address isn't 1 mod 3), and 20 on a strict one with
+  64-byte pages (appendix A.5, under the conventions of 2026-11-13).
 - **Pass stages,** each reported separately:
   1. a copying sequence appears: a program has a descendant with its
      genome;
   2. the offspring reproduce: viable offspring;
   3. a lineage reaches several generations (a setting, for example 10);
   4. the lineage establishes: it persists despite faults and competition,
-     for a set span;
+     for a set span. It holds its place for the whole span without a break:
+     a set number of living members (20) or more, most of them born as
+     copies of their parent (faithful, or at least half alike, 13.2), and a
+     set share (10%) of the place's programs [2026-11-12, after the third
+     origin run, agreed with Damian];
   5. it keeps adapting once the place is crowded: its genome groups change
-     (13.2).
+     (13.2). Only groups it makes after it establishes count, and a seed
+     runs on after stage 5 [2026-11-12, after the fourth origin run, agreed
+     with Damian].
 - **The budget and the pass mark** (placeholders, to fix before the first
   run):
   - a compute budget per seed, about 10^12 instructions, which is Nova 1's
@@ -1839,6 +2562,51 @@ This is the first build target, and it gates everything else (R8).
   Then the design is revisited with Damian. A higher noise rate inside the
   reset region alone is possible, but nothing in real hardware justifies
   it.
+- **The review after all five levers** [2026-11-13, agreed with Damian;
+  `design-review-origin-2026-11-13.md`]. Runs 3 to 6 each reached stage 4
+  in 1 seed of 10. Decided:
+  - **Lever 5's experiments are dropped.** `os.spawn_top` (a SPAWN that
+    makes a new program sent its caller back to its start) broke 9.1 (the
+    OS moving a program unasked), principle 12 (it handed copiers their
+    loop) and principle 9 (no real anchor), and didn't change the count.
+    TOP (a spare code made a jump to its allocation's start) did no better
+    than without it.
+  - **Two experimental conventions become the rules:** a new thread starts
+    with B, C and D at its start (A.3), and ALLOC's result, the address or
+    0, lands in D as well as A (A.4). Nothing reached stage 4 without them.
+    D is set on a failure too, so A.5's turnover holds.
+  - **A lax place has no no-execute bit** (9.3).
+  - **Turnover stays at gate 2.** At gate 1 nothing ends a program that
+    doesn't fault (R30), so a full place can freeze, and stage 5 may not
+    come. Stage 4 counts a frozen hold. If these changes still leave stage
+    4 at 1 seed in 10, bringing gate 2's turnover forward is the next
+    option; it would also make IP wrapping at an allocation's end safe.
+  - **Strict places are barren at gate 1,** a finding: none reached stage 1
+    in six runs. Life starts on lax places, and strict ones are for
+    migrants to settle at gate 3.
+  - **Snapshots of seeds** are built, so a lineage can be traced in the
+    place it lived in.
+  - **The pass mark stays** until these are tested. It is about seven times
+    out of reach (about 0.1 established lineages a seed against the 0.7 it
+    needs). Beyond that lie a bigger budget, or reopening 10.1's rule that
+    no ancestor is seeded in a run.
+- **The result: a pass** [2026-11-14, accepted by Damian; build-plan-gate1.md
+  11, runs 7 and 8]. Under the review's rules, with the first three levers
+  on, stage 4 came in 11 of 20 seeds within the budget (5 of seeds 1 to 10,
+  6 of seeds 11 to 20), against a mark of 10. Every seed reached stage 1,
+  19 stage 3 and 6 stage 5. All of it was on lax places.
+  - **Half the holds sleep.** In 5 of the 11 seeds lineages were still
+    copying and taking turns at the end. In the other 6 copying had
+    stopped and the holding lineage stayed, most of its threads asleep
+    waiting for an interrupt, in full places and not. Nothing at gate 1
+    ends a sleeping program, so turnover in a full place is gate 2's
+    question (R30).
+  - **The side measurements (14.1):** faults weren't too harsh for the
+    first copiers to establish, though nearly every child died by a fault
+    (16.8 million fault deaths against 17.0 million births in seeds 1 to
+    10). The reset regions kept changing: their compressibility drifted
+    from about 0.84 at 2 million ticks to about 0.77 at the end, rising at
+    times, against 0.97 for static.
 - **Why it might fail:** a replicator here needs ALLOC, a copy, perhaps
   PROTECT, and SPAWN, and each call costs a crossing. BFF got replicators
   from random code because a replicator there needs no calls at all.
@@ -1850,6 +2618,7 @@ This is the first build target, and it gates everything else (R8).
 ### 11.1 Knowledge is local
 
 - **Programs sense their own place and their neighbours** (9.2, SENSE).
+  Neighbours are data neighbours: the places a data link reaches (A.4).
   - Anything about distant places must come from other programs: something
     an information-age civilisation would invent. Expect that to be rare.
   - The world must work without it, and neighbour-to-neighbour spreading is
@@ -1877,8 +2646,9 @@ This is the first build target, and it gates everything else (R8).
 - **SEND is fire and forget, and it costs the sender time (R10).**
   - It pays the crossing and a per-byte copy into its network device.
   - Then the thread sleeps while the device transmits: the device's latency
-    + size ÷ the first link's bandwidth. Real anchor: a blocking send
-    returns once the data has left the sender's buffer.
+    + size ÷ the first link's bandwidth, in whole ticks (11.3). Real
+    anchor: a blocking send returns once the data has left the sender's
+    buffer.
   - It pays a little power per byte at the sending and receiving places.
   - **It fails only for local reasons:**
     - no route in the place's own routing table;
@@ -1913,6 +2683,39 @@ This is the first build target, and it gates everything else (R8).
   - It reveals reachability, power, distance and congestion, never
     resources or residents.
   - It costs the crossing and the thread's time for the round trip.
+- **SEND, RECV and PING in detail [details at build, step 4; 2026-11-16]:**
+  - A SEND copies its bytes when it's called, into its place's outbox, and
+    pays the crossing plus `os.send_byte_cycles` (2) a byte. Every place's
+    outbox joins the network at the barrier, in place order, ahead of that
+    barrier's arrivals (11.3). The room a SEND needs in its exit queue
+    counts what the place's earlier SENDs that tick keep there.
+  - A message delivered to a comms port goes straight to the thread that
+    has waited longest in RECV on it, if any. Otherwise it joins the port's
+    inbox, or is dropped if the inbox is full, and the data interrupt is
+    pending for each thread with a handler on that port (A.3). RECV takes
+    the first message for its port in the inbox.
+  - A PING is a request of `net.ping_size` bytes. At its destination the
+    network turns it round as an echo of the same size, at the barrier it
+    arrives. The echo ends the wait with the ticks since the PING. A PING
+    that times out gets −1, and its late echo is ignored. A PING fails at
+    once (−1) for SEND's local reasons.
+  - **To its own place [2026-11-16, `build-plan-gate3.md` 11 step 4;
+    agreed with Damian],** a SEND or PING crosses no link. It's delivered
+    after the device's latency. So a PING to its own place takes twice the
+    latency, and the SEND's caller waits the latency alone.
+  - **An idle run waits on its core [2026-11-16, `build-plan-gate3.md` 11
+    step 4; agreed with Damian]** for its SEND's transmission (where idle
+    runs may SEND, 9.2) or its neighbour SENSE's round trip, holding the
+    core. A ready thread can
+    still take the core, which ends the run, as it ends any idle run
+    (10.2). An idle run's RECV and PING fail (A.4).
+  - **A PING's request and echo are 8 bytes each [2026-11-16,
+    `build-plan-gate3.md` 11 step 4; agreed with Damian; a placeholder].**
+  - SENSE of the bytes waiting at port 0 reads 0. Port 0's queue is the
+    reset region's (10.4), not an inbox RECV can take from. At gate 2 the
+    boot block waits there, and reading it would change gate 2's world.
+  - With no map there is no network: SEND fails and PING returns −1, as
+    before gate 3.
 
 ### 11.3 Links: bandwidth, forwarding, corruption, routing
 
@@ -1933,6 +2736,17 @@ This is the first build target, and it gates everything else (R8).
   - Real anchors: each hop costs about a microsecond of switching. Light in
     fibre covers about 1 km in 5 µs, so crossing an ocean takes about
     30 ms.
+- **Time on the network is in whole ticks [2026-11-16,
+  `build-plan-gate3.md` 2; agreed with Damian].** Messages move at the
+  barrier (appendix C), so a message can't cross part of a hop.
+  - A hop takes at least a tick: the per-hop cost plus length × the
+    per-length cost, rounded up, plus the size ÷ the bandwidth, rounded up,
+    plus the wait in the queue.
+  - A message crosses at most one hop at a barrier.
+  - **Where messages meet, the order is fixed.** Messages joining one queue
+    at one barrier join in order of the place they came from (by id), then
+    their order there. A place's own SENDs join in the order they ran. So
+    delivery doesn't depend on the host's thread count.
 - **Corruption grows with route length,** at a rate that's a setting. It is
   silent. Corrupted data arrives as it is, as with UDP's checksum switched
   off (which IPv4 allows), so it can become mutation. Programs can evolve
@@ -1952,13 +2766,45 @@ This is the first build target, and it gates everything else (R8).
     (14).
   - Next-hop tables are worked out at each place: about 2 MB for 1,000
     places. At 10,000 places, routes are found on demand and cached.
+- **The network in detail [details at build, step 3; 2026-11-16]:**
+  - A destination's next hops are worked out when first asked for (a
+    shortest-path search from it), and kept until the topology changes, at
+    any number of places. The routes are the same as tables at each place
+    would give.
+  - **Working them out [details at build, step 5; 2026-11-16]:** at the
+    barrier, the destinations the next barrier's arrivals will ask for are
+    worked out ahead, spread across the host threads. Places SENDing in
+    parallel each work out a stale destination on their own, and the
+    first to finish keeps it. Neither changes a route, since a
+    destination's next hops follow from the dark places alone.
+  - The barrier's network step, after every place has run its tick:
+    1. every dark network device drops what's queued at it;
+    2. the messages reaching their next place, by the place they came from
+       (by id), then their order on the link. At a dark place they're
+       lost; at their destination, delivered. Any other joins the queue
+       toward its next hop, or is dropped if there's no room, or stranded
+       if there's no route;
+    3. each free link end starts sending its queue's head, or drops it as
+       stranded if the next hop is dark;
+    4. if any network device went off or came on, the routes are worked
+       out again before they're next used.
+  - A message sent in a tick is in its queue before that barrier's
+    arrivals join it.
+  - Each hop flips each bit with a chance of `net.corruption` × the link's
+    length ÷ the average link length (at most a half), drawn from a stream
+    of its own for each tick.
+  - The draw per byte is counted at the sender when the message is sent,
+    and at the receiver when it's delivered.
 
 ### 11.4 The network device
 
 - **Each place has one,** a router and interface in one, from the catalogue
   (7.2). It has a range, heat, wear, failure and visits like any device.
 - **It must be on for the place to send, receive or forward.** So a blackout
-  is also a hole in the network, and routes go around it. Real anchors: in
+  is also a hole in the network, and routes go around it. When it cuts out
+  it drops everything queued at it: its link-end queues and the message it
+  was sending (7.6) [2026-11-16, `build-plan-gate3.md` 2; agreed with
+  Damian]. Real anchors: in
   Puerto Rico after Hurricane Maria (2017), and in Texas in February 2021,
   phone and internet service failed as power failed.
 - **Power:**
@@ -1975,6 +2821,12 @@ This is the first build target, and it gates everything else (R8).
   bandwidth.
   - Real routers size buffers at about one round trip's worth of bandwidth
     (Villamizar and Song, 1994).
+  - **It never holds less than the message size limit (11.2)
+    [2026-11-16, `build-plan-gate3.md` 11 step 3; agreed with Damian],**
+    so a message of any allowed size can cross any link. Otherwise the
+    narrowest links' queues (8 ticks of 16 bytes) would be closed to
+    messages over 128 bytes, a wall on each link rather than the pressure
+    on big messages below.
   - Messages wait their turn.
 - **When a queue is full, the newcomer is dropped,** silently. Messages
   already waiting keep their place (tail drop).
@@ -1982,11 +2834,23 @@ This is the first build target, and it gates everything else (R8).
     loses big datagrams first too: losing any fragment loses the whole.
     Compact genomes travel best.
   - A flood from one program fills queues everyone uses: a commons.
-- **Each comms port has a fixed inbox,** held by the OS on the reset region's
-  memory device, so it fades in a brownout.
+- **A message whose next hop is a dark place** (its network device off) is
+  dropped when it reaches the head of its queue, and counted as stranded
+  [2026-11-16, `build-plan-gate3.md` 2; agreed with Damian]. That's 11.6's
+  lifetime of 0, until gate 5 brings rerouting and lifetimes. Routes are
+  recomputed at the barrier after a network device goes off or comes on
+  (11.3), so later messages go around it. From gate 5 a dark next hop is
+  treated as a failed link (11.6).
+- **Each comms port has a fixed inbox,** held by the OS.
   - When it's full, the newcomer is dropped, silently. What's waiting
     stays.
   - SENSE reads the bytes waiting.
+  - **Inboxes are lost at a cold start,** with port 0's queue, and kept
+    whole until then [2026-11-16, `build-plan-gate3.md` 2; agreed with
+    Damian. Before, they faded in a brownout]. Inboxes aren't in the
+    address space, so fade has no cells to reach. And any dip below the
+    reset region's memory's threshold ends in a cold start when power comes
+    back (10.5), so inboxes that could have faded are emptied then anyway.
 - **Port 0 has a bounded queue too** (10.4).
 
 ### 11.6 Outages and rerouting [gate 5]
@@ -2011,12 +2875,96 @@ This is the first build target, and it gates everything else (R8).
     link's queue, which bounds their storage.
   - When no route remains, a message waits in that queue up to a lifetime
     (a setting; 0 drops it at once, as IP does).
+  - **Dark places too, and when the lifetime starts [2026-11-20,
+    `build-plan-gate5.md` 2; agreed with Damian].** A dark next hop (its
+    network device off, every night somewhere) is treated as a failed
+    link: the message moves to a new route's queue if there is one, and
+    otherwise waits, up to the lifetime, counted from when it found no
+    route. A lifetime of 0 gives gate 3's drops exactly (11.5). So
+    outages become slowdowns for nights as well as cuts. Chosen over
+    rerouting around failed links only and keeping gate 3's drop for
+    dark places.
+  - **The order [details at build; 2026-11-20]:** at the barrier, a
+    place's waiting messages join their new queues in link order, then
+    in their order in the old queue, ahead of new arrivals, as room frees
+    (11.3's fixed order where things meet).
+  - **Rerouting in detail [details at build, step 5; 2026-11-20,
+    `build-plan-gate5.md` 11]:**
+    - **A lifetime of 0 reroutes nothing.** Routes are worked out once
+      a tick, at the barrier's end (11.3), so a message found blocked
+      at one barrier can take a new route at the next at the soonest. A
+      lifetime of 0 leaves it no next barrier: it is dropped where gate
+      3 dropped it (11.5), even if another route exists. This is the
+      reading under which a lifetime of 0 gives gate 3's drops exactly,
+      and the equivalence test with gate 4's world holds to the byte
+      with it. With a lifetime of 1 or more a blocked message waits and
+      reroutes. Kept by Damian on 2026-11-20: "Yes, keep it".
+    - **"Ahead of new arrivals"** is ahead of the barrier's arrivals. A
+      place's own SENDs of that tick are already in the queue: the OS
+      kept their room during the tick.
+    - **A message that reaches a place with no route on** (the way
+      changed while it crossed) waits there, in the room of the link
+      end it came in by, and is dropped if that end has no room. Before
+      gate 5 it was stranded at once.
+    - **The lifetime counts time with no route,** from the barrier the
+      message found none. A message that has a route and waits only for
+      room has no limit, and its count starts again if the route goes.
+    - **Messages that come back from a failed link** can put that link
+      end over its queue's size, by what the link held; nothing new
+      joins it until it has room. So the bound on a queue's storage is
+      its size and what its link held.
 - **Where data is still lost:**
   - newcomers at full queues and inboxes;
   - stranded messages whose lifetime runs out;
   - everything queued at a place whose network device goes dark (7.6).
 
   So outages become slowdowns, and partitions become waits.
+- **Cuts in detail [details at build; 2026-11-20, `build-plan-gate5.md`
+  2; agreed with Damian]:** a link's cut chance a tick is the rate × its
+  length ÷ the average link length, times any outage patch over it, drawn
+  as gaps from the seed and the link, as the error countdowns are, so
+  nothing is drawn per link per tick. Its repair at a visit is a new link
+  with no wear.
+- **Failed links in detail [details at build, step 5; 2026-11-20,
+  `build-plan-gate5.md` 11]:**
+  - **A tick's order:** a visit due this tick mends its place's failed
+    links, then the cuts due land, both before the solve (appendix C,
+    1). Links at their endurance fail after the solve, with the
+    devices' failures (C, 4; 7.6); the rest then take the tick's wear.
+    So a cut that lands in a visit's tick waits for the next visit.
+  - **The cut schedule runs whatever the link's state.** A cut that
+    finds its link already failed does nothing, and is counted. So the
+    schedule is the same whatever the programs do (principle 3).
+  - **What a failed link leaves:** a place cut off from every source
+    sits at 0 V. No heat passes between its two places (7.6). A
+    neighbour SENSE over it reads 0 in every reading but the id, as
+    over a dark device.
+- **Straits that part and rejoin [gate 5; 2026-11-20,
+  `build-plan-gate5.md` 2; agreed with Damian; one of the four mechanics
+  he chose that day].** A strait is all the bridges between one pair of
+  neighbouring landmasses (6.1).
+  - At setup each strait is drawn to part or not, with a set share
+    (half). One that parts is joined and parted by turns, each spell
+    drawn evenly on a log scale between two settings (2 to 20 million
+    ticks), from the seed and the strait, fixed before the run as the
+    sources' schedules are: a boundary condition (principle 3). It starts
+    joined, so the origin and the first spread happen as before.
+  - While parted, its bridges carry nothing, power or data, and visits
+    don't mend them. A parted bridge is a failed link for routing:
+    messages reroute if another strait still joins the two sides, and
+    otherwise wait out the lifetime and are lost. Messages on its wire
+    when it parts are lost, and counted. It carries no current either
+    (12.6).
+  - So populations evolve apart, then meet. Observers report at each
+    rejoining the leading groups on each side (14.1), and over the next
+    era the colonies founded across it and the first leads either side.
+  - A share of 0 is off. `map.unbridged` stays as it was, for a landmass
+    apart for the whole run.
+  - Real anchors: Beringia, joined and parted by the sea through the ice
+    ages; the Isthmus of Panama, whose joining mixed two continents' life
+    (the Great American Interchange).
+  - Chosen over `map.unbridged` alone (life apart, never meeting), and
+    over slow-mending cuts per bridge, which seldom part a strait whole.
 - **The cost:** about one shortest-path search per place for each topology
   change, plus a change in the graph under the voltage solve.
 
@@ -2086,6 +3034,11 @@ brownout was the surge's warning, not a kind of its own.
     it.
   - Its effects are the decided ones: errors (memory loses bits), heat and
     wear. A big enough spike makes devices fail outright.
+  - **In detail [details at build; 2026-11-20, `build-plan-gate5.md` 2;
+    agreed with Damian]:** a storm gives each place inside it a chance a
+    tick of a strike, scaled by the storm's strength there. A strike joins
+    that tick's solve at the place, as a source of the strike type, and
+    is counted per sample, not logged one by one.
 
 ### 12.3 Regional events [gate 5]
 
@@ -2115,6 +3068,17 @@ fixed before the run, as the day is.
   once, correlated in space and time.
 - **Storms affect power only.** They don't raise data corruption, which
   follows route length (11.3) at its own setting.
+- **Gusts** are a sixth type from gate 5 [2026-11-20]: they multiply the
+  replication current's strength inside them (12.6).
+- **In detail [details at build; 2026-11-20, `build-plan-gate5.md` 2;
+  agreed with Damian]:** a patch's strength is full at its centre and
+  falls in a straight line to nothing at its radius. A source is inside
+  by its landing point, a place by its position, a link by its middle. A
+  patch moves at a drawn speed in links a day, its heading turning by a
+  drawn amount each day, and a drawn share stay put. Patches that overlap
+  multiply what they scale. A heat wave raises the outside temperature
+  its places cool toward; leakage and wear stay counted from the world's
+  outside temperature, as gate 4 counts leakage.
 - **Settings, about 18:**
   - movement, shared by all types: speed, turn and lifetime;
   - per type: how often, how big and how strong.
@@ -2131,6 +3095,11 @@ fixed before the run, as the day is.
 A trend is something a program has to notice itself, by keeping earlier
 readings.
 
+A device's own temperature isn't a reading [2026-11-19,
+`build-plan-gate4.md` 2; agreed with Damian]. Heat trips follow it (5),
+but a new reading would renumber SENSE's (A.4) for every evolved program.
+The place's temperature is the warning.
+
 **Every outside event ramps up.** Source drop-outs, swells, patches and
 storms all rise from nothing to their peak over a lead time drawn per
 event, then hold, then ease.
@@ -2145,6 +3114,12 @@ event, then hold, then ease.
   reacting to every dip has a cost. Nova 1 used 25%.
 - **Settings:** the lead time's shortest and longest, and the false-alarm
   share.
+- **In detail [details at build; 2026-11-20, `build-plan-gate5.md` 2;
+  agreed with Damian]:** an event's strength rises in a straight line
+  over its lead, holds, and eases over as long again. A false alarm rises
+  over its lead to a drawn fraction of its strength, then eases; the
+  event never comes. Drop-outs, swells and patches ramp. A strike and a
+  cut don't.
 - **Real anchors:**
   - in Tokyo's voltage collapse of July 1987, on a hot day, voltages sank
     for about twenty minutes first;
@@ -2163,8 +3138,9 @@ event, then hold, then ease.
 
 A single cut link gives no warning, as real digging gives none.
 
-**The low-voltage interrupt** (9.5) fires once as a core's voltage nears its
-cut-off. The handler can SLEEP, so the thread survives the cut (7.6).
+**The low-voltage interrupt** (9.5) fires once for a thread, as it starts a
+quantum on a core whose voltage is near its cut-off. The handler can SLEEP,
+so the thread survives the cut (7.6).
 
 - Real anchors: the PDP-11's power-fail trap, ACPI's low-battery event, and
   a UPS signalling "on battery".
@@ -2185,7 +3161,10 @@ cut-off. The handler can SLEEP, so the thread survives the cut (7.6).
 - links: 2;
 - error floors in the catalogue;
 - the wear-levelling toggle;
-- symptoms: 3, plus the interrupt's margin.
+- symptoms: 3, plus the interrupt's margin;
+- gate 5's four chosen mechanics, about 15 more: flaky parts 3 (7.5),
+  straits 3 (11.6), the killer and the watchdog 2 (9.1), the current
+  about 7 (12.6).
 
 **Risks:**
 
@@ -2194,6 +3173,82 @@ cut-off. The handler can SLEEP, so the thread survives the cut (7.6).
 - **Long-crowded places carry worn, slow, error-prone devices** until those
   fail and are replaced. That's intended succession, but long-lived lineages
   may pay for their own success.
+
+### 12.6 Replication currents [gate 5]
+
+[2026-11-20, `build-plan-gate5.md` 2, gap 15; agreed with Damian; one of
+the four mechanics he chose that day, in place of migration out of full
+places: "agreed on the weakness of the current and yes this should
+replace migration."]
+
+- **What it is:** background copying that no program asks for, as real
+  networks have (backups, mirror syncs, cache fills, follow-the-sun
+  replication). It carries whatever lies in its path, living code, dead
+  code and junk alike, as wind carries pollen and the sea plankton. It
+  never reacts to crowding.
+- **It keeps 9.1 and principle 12.** It copies cells by address, never by
+  owner, so it acts for or against no program, and its effect can be
+  stated in the world's terms alone. Its schedule is drawn before the run
+  and never reacts to the world: a boundary condition, as the supply's
+  schedule is (principle 3). What it carries depends on what memory
+  holds, as what a visit does depends on the hardware. Migration would
+  have moved programs unasked, against 9.1.
+- **What is copied:** each place now and then copies a block of a set
+  size from a random address in its memory, held, free or the reset
+  region alike, drawn from the seed, the place and the tick. The original
+  stays put.
+- **Where it goes:** along the place's data links that point downstream,
+  each link's share in proportion to how closely it points along the
+  current's heading; a link across or upstream carries none, and a place
+  with none downstream sends nothing. Bridges carry it as any data link
+  does, so a rare block crosses a strait: rafting. A parted strait
+  carries none (11.6).
+- **On the wire:** a block is a message of its size. It takes the link's
+  bandwidth and queue room as programs' SENDs do, so it competes with
+  them. It never waits: a full queue or a dark next hop drops it,
+  counted. The lifetime (11.6) is for programs' messages.
+- **Where it lands:** in the neighbour's reset region, at a spot drawn
+  from the seed, as raw bytes, cut short at the region's end. Not at port
+  0: no queue and no prompt run. It counts as a write to the region, so
+  it can wake a halted core, as a cosmic-ray flip does, and idle runs meet
+  it as their start spots step through, as they meet static (10.2). An
+  idle run may touch only the region and what it allocated, so a block
+  landed anywhere else could never run. Gate 3 showed bytes landed in a
+  region come alive this way: static runs in arrivals' landed bytes made
+  seven times the programs the arrivals' own prompt runs did.
+- **Its direction and strength:** one heading and one strength for the
+  world, eased each season to new draws, as the sources' capacities ease
+  (4.3): the heading turning up to an eighth of a turn, the strength
+  between half and twice its mean, so a heading lasts about an era and
+  turns many times a run. Gusts are a patch type (12.3).
+- **With the day:** at each place the strength follows its day, as the
+  supply does, strongest at its noon. The strongest band sweeps across
+  the map with the sun, and the current mostly leaves places whose
+  network devices are lit.
+- **Its record (observers only):** a static run that starts in bytes the
+  current landed, still as they landed, is counted as runs in arrivals'
+  landed bytes are (13.1). A program it makes joins the lineage of the
+  program that held those bytes at the source, if one did, marked as
+  carried by the current. The spread measure (14.1) doesn't count
+  colonies founded that way; they are counted apart. The OS's cause stays
+  "static".
+- **What it should do:** downstream places get gene flow, upstream places
+  stay isolated, and a turn of the current exposes new places to it.
+- **Weak by default:** blocks of 256 bytes, about one a place a day at
+  full strength, seasons of 500,000 ticks. A strength of 0 is off.
+- **Risks:**
+  - strong, it is gate 3's flood of travellers again (10.4): bytes landing
+    faster than static can make anything of them;
+  - it lands where the origin happens, and before life it carries other
+    places' static as much as life;
+  - like any free carriage it makes SEND worth a little less: it carries
+    programs that never paid to send, though it carries junk as readily.
+- **Real anchors:** the background replication above; and rafting: in
+  1995 green iguanas rode storm debris from Guadeloupe to Anguilla and
+  settled there.
+- Chosen over landing in free memory outside the region, where nothing
+  could run it, and over landing at port 0, a prompt run for every block,
+  which is a SEND with no sender.
 
 ## 13. Observation
 
@@ -2226,20 +3281,51 @@ creates what they show (2).
     An arrival's record names its sender, and a boot's names the boot
     block's last writer;
   - **a program ended,** with the cause: exit, a fault, a crash at a cut-out,
-    a failed memory device, or memory that lost its contents.
+    a failed memory device, memory that lost its contents, or a cold start
+    (10.5). From gate 5 [2026-11-20, `build-plan-gate5.md` 2]: "failed
+    device" for a failure of any kind (7.6), "out of memory" for the
+    killer, and "watchdog" for its fault with no handler (9.1). A place's
+    records carry its incarnation (7.8).
+    - **Read from the log of respawns, not held in each record
+      [2026-11-21, `build-plan-gate5.md` 11, step 6; Damian: "Yes, log
+      only"].** No record holds the incarnation, so no record changes
+      size. Each respawn is logged as a fact, above, with its tick, its
+      place, its new incarnation and its new point, and a record's
+      incarnation is the count of its place's respawns up to its tick.
+      The world keeps and saves the incarnation itself. Chosen over a
+      field in every record.
+    - A teardown's deaths have the cause "failed device", counted
+      apart, and no cause of their own [details at build, step 6;
+      2026-11-21].
 - **Frequent facts are counted per sample:**
   - threads started;
   - threads crashed at cut-outs;
   - messages sent, dropped and stranded;
-  - SENDs from idle runs (R4).
+  - SENDs from idle runs (R4): the calls they make, which fail unless idle
+    runs may SEND (9.2);
+  - from the combined run of gates 4 and 5 [Damian, 2026-11-20: "Yes,
+    add it"]: the calls programs' threads make, by kind, all 16; SENDs
+    to a port other than 0; and the calls that succeed, by kind, if that
+    is cheap. World totals in each written sample, reported and not
+    judged (`build-plan-gate5.md` 1).
 - **Observers also read sampled, read-only views of the state,** because some
-  labels are states, not events. The sample interval is a setting. The
-  views include:
+  labels are states, not events. The sample interval is a setting, 100
+  ticks in every gate's runs. From the combined run of gates 4 and 5,
+  every second sample is written to disk, a row each 200 ticks [Damian,
+  2026-11-20: "we can probably get away with halving the sampling to
+  every 200 ticks", then "Agreed" to sampling at 100 inside and writing
+  every second]. The stage 4 and settling clocks (10.6, 13.3) are
+  checked at each sample and start again at one failed check, so the
+  sampling itself stays at 100 and no measure changes
+  (`build-plan-gate5.md` 7). The views include:
   - each thread's IP and the code around it;
   - each reset region's bytes, with their compressibility (R4);
   - page ownership.
 - **Observer memory is saved beside each snapshot,** outside the hash, so the
-  family tree survives a resume.
+  family tree survives a resume. [Built 2026-11-18, `build-plan-viewer.md`
+  step 9: a seed of the origin test saves a second file beside its world's,
+  with the observers' memory, the counters kept for reports and the test's
+  own record, and `origin.resume` carries the test on from it.]
 - **What can be re-run later, and what can't.** A label can be redefined
   and re-run over an archive only if its evidence was kept. Each detector
   lists its evidence (13.3), so anything costly to keep shows up before
@@ -2252,6 +3338,16 @@ creates what they show (2).
   - **Retention [starting point]:** full facts for a rolling window (a
     setting), then births and deaths only for lineages that are still
     alive or were abundant. The genebank keeps each distinct genome once.
+  - **Records written as they finish [2026-11-18,
+    `build-plan-observe.md`; Damian's direction, the 30 seconds his;
+    built for samples, voltages, windows, kept genomes and the lineages
+    let go].** Gate 3's run held about 6 GB of observers' memory per
+    seed, all history, none let go. On Damian's direction, records that
+    are finished go to files per seed as the run goes: samples and
+    voltages, turnover windows, kept genomes (13.2), and lineages that
+    are extinct and can't come back. They are buffered and written every
+    30 seconds and at each save. Memory keeps only what the observers
+    still act on, and a save holds that plus how far each file had got.
 - **Why:**
   - it's principle 2's test;
   - labels can be redefined without rerunning the world;
@@ -2276,6 +3372,36 @@ creates what they show (2).
     copied.
 - **The genebank** saves each new genome once, with when, where and its
   parent.
+  - **Only genomes whose lines last [2026-11-18, `build-plan-observe.md`;
+    agreed with Damian; built].** On Damian's direction ("we only really need to
+    save programs that last at least 3 generations"): a genome is kept
+    once a program carrying it has a grandchild, whatever genomes the
+    child and grandchild have (`observe.keep_generations`; 1 keeps every
+    genome, as before). Each kept genome records the genome it came from
+    and its generation, so a line that lasts is kept whole, mutations
+    included, as a tree of genomes (Damian: "a record of each generation
+    [...] so we can look at how it mutated and branched out over time").
+    A genome is forgotten once it can no longer be kept: no carrier, and
+    no carrier's child, alive. Only kept genomes join or found groups,
+    so stage 5's new groups are new kinds whose lines lasted. Nothing is
+    held for 13.3's scavenger label: a birth into leftover code of a
+    genome no longer held counts as a birth into unknown leftovers
+    (Damian: "I don't think we need to keep this memory of genome
+    corpses around"). Gate 3's seed 8 made 15.7 million genomes from
+    117.8 million births; most were born once.
+    - **The rule stands for the combined run of gates 4 and 5
+      [2026-11-20, Damian].** He said: "Remembering extinct lineages is
+      kind of the point, but I would want it limited to genomes that
+      actually had at least 3 generations of descendants. There's no
+      point is saving what is basically just random noise." Asked
+      whether that meant one generation deeper than what is built, he
+      said "Keep existing rule": a grandchild, `observe.keep_generations`
+      = 3, with `observe.forget` off in the gates' runs.
+    - **Kept genomes are stored as differences from their parent
+      [2026-11-20, Damian; built with the storage changes],** with a
+      whole copy at least every 16 steps along a line ("I like the idea
+      of storing a key frame every 16 changes, I think it is worthwhile
+      to keep in"). It changes the files, not what is kept.
 - **Code after birth is tracked by sampling.** Each sample hashes the code
   around each thread's IP. That shows overwrites, colonies running many
   threads, and code that changes after birth.
@@ -2284,7 +3410,12 @@ creates what they show (2).
   - an arrival gives its sender. There's no parent if the sender was an
     idle run (9.2);
   - a boot gives the boot block's last writer;
-  - static gives no parent: a new origin.
+  - static gives no parent: a new origin. But a static run that starts in
+    the bytes an arrival last landed in the reset region, while all of
+    them are as they landed, gives that arrival's sender, as the
+    arrival's own run does. A later landing over any of them, or any
+    other change to them, ends that [gate 3; 2026-11-17,
+    `build-plan-gate3.md` step 7; agreed with Damian].
 
   No similarity matching is used in the tree. Corruption in transit doesn't
   break a link, because the sender is known.
@@ -2304,6 +3435,13 @@ creates what they show (2).
     greedily.
 - **Genomes are real code,** so the browser shows them disassembled in the 22
   instructions.
+
+- **A run with no end forgets the extinct** [2026-11-19; built overnight on
+  Damian's approval, and confirmed by him]. With `observe.forget` on, a kept
+  genome that no living or remembered program holds leaves memory, and a
+  group with its last genome; both stay in the genebank's file. A gate's
+  run leaves it off, so its counts are of everything ever kept. The rules
+  and what changes in the counts are in `build-plan-observe.md` 3.5.
 
 ### 13.3 Detectors
 
@@ -2333,7 +3471,7 @@ makes:
 | Colonist | The first program of a lineage at a place, born from an arrival | Birth facts | Observation |
 | Scavenger | A program's birth image or running code matches a dead program's genome, in memory it allocated | Birth images, IP samples, genebank | Heuristic |
 | Booter | A program born from a boot block | Birth facts | Observation |
-| Traveller | Code from idle runs that SENDs itself on without becoming a program (10.4) | Idle-run SEND counts, region samples | Heuristic |
+| Traveller | Code from idle runs that SENDs itself on without becoming a program (10.4), where idle runs may SEND (9.2) | Idle-run SEND counts, region samples | Heuristic |
 | Sleeper | A program that sleeps, or uses the low-voltage interrupt, before cut-outs, and survives | Call counts per lineage, death facts | Heuristic |
 | Communicator | A program whose behaviour follows data it RECVs from another lineage | Needs RECV traces, not yet kept: costly | Causal claim |
 | Partnership | Two lineages that regularly send to each other's ports | Per-lineage message counts | Heuristic |
@@ -2342,6 +3480,78 @@ makes:
 | Blackout, outage | A region dark, or cut off, for a time | Per-place samples | Observation |
 
 **Deaths are counted by cause,** from the facts.
+
+**As built [starting point, step 10; 2026-11-11].** All of these are
+observers' choices, so they can change without touching the world.
+
+- **Lineages:** every birth with no parent founds a lineage: one from
+  static, or by hand in a test. So each copy an idle run makes from the
+  region starts a lineage of its own.
+- **Faithful births:** a birth is faithful when its genome is its parent's.
+  - **The genome must be at least 8 bytes** (`observe.min_genome`)
+    [2026-11-12, after the lever trials; Claude's change, confirmed by
+    Damian]. On a lax place, a gift of a few bytes inside the parent's page
+    gives the child the whole page, so it runs the parent's code in place.
+    A byte or two written there matches the parent's genome, yet nothing
+    was copied.
+  - A lineage's first faithful birth is the origin test's stage 1.
+  - Its first faithful birth from a parent that was itself born faithfully
+    is stage 2.
+- **Hand-overs** [2026-11-12, agreed with Damian]: a birth into the
+  allocation its parent was born in. The parent gave its own body away and
+  copied nothing, though the written extent the allocation carries matches
+  the parent's genome. A hand-over is never faithful or a copy, and is
+  counted on its own, off the copying ladder. R15 (9.4) now stops a program
+  handing over code it runs on. A program running in another allocation of
+  its own can still give its first one away, and that is a hand-over too.
+- **Copies:** a birth is a copy when it is faithful, or a near copy: its
+  parent wrote 8 bytes or more into it, and its genome and the parent's
+  have at least half their 3-byte runs in common (out of the larger set,
+  as the groups measure closeness). Each
+  lineage counts its living members born as copies, for stage 4 (10.6).
+- **Scavenger:** a birth with nothing written, whose whole allocation hashes
+  to a known genome. Birth images are hashed in the same way as genomes, so
+  the two compare.
+- **Hijack:** sampled. A thread's code allocation, over the extent its
+  parent wrote, now hashes to another lineage's genome rather than its own.
+- **Genome groups:** two genomes' closeness is the share of their distinct
+  3-byte runs in common, out of the larger set. A genome joins a group at
+  0.8 or more, so one changed byte in an 18-byte genome (13 runs of 16 kept)
+  stays in its group. Genomes under 3 bytes group by equality.
+- **"Crowded"** (stage 5) means the place's free memory is below a tenth.
+- **Distinct paths:** each idle run's executed bytes are hashed, and counted
+  once in a table of 65,536 that starts afresh when three quarters full.
+- **At gate 1** the facts are kept in memory. Saving the observers' memory
+  beside a snapshot (13.1) waited until a run needed it, and was built on
+  2026-11-18 (`build-plan-viewer.md` step 9).
+- **Across places [gate 3; 2026-11-16, `build-plan-gate3.md` 2; agreed with
+  Damian]:**
+  - An arrival carries, for the observers only, the program that sent it,
+    as a boot carries its block's last writer. A program made by an
+    arrival's prompt run has the cause "arrival" and that sender as its
+    parent, so its lineage carries on at the new place. So does a program
+    made by a static run in the arrival's landed bytes (13.2): it's born
+    from the arrival too [2026-11-17]. A lineage's first member at a
+    place is a colonist.
+  - **A lineage settles a place it arrived at** when it holds it as stage 4
+    holds (10.6), with the same numbers, and its first member there was a
+    colonist. Copies count only if they were born at that place: members
+    that arrived don't.
+  - **Life spreads** when a lineage settles a place beyond the one it began
+    in (14.1). A colonist that dies at once has spread nothing.
+  - Also reported, not judged: colonists by place and lineage; arrivals
+    that ran, made a program, or did neither; travellers; and how far each
+    settlement is from where its lineage began, in hops.
+  - **In detail [details at build, step 4; 2026-11-16]:**
+    - A program that SENT to a port 0 keeps its record after it dies,
+      until nothing it sent is left on the network, waiting in a port 0
+      queue, or running as a prompt run (checked at each sample). So its
+      colonist still finds its parent.
+    - A prompt run of an arrival is counted when it ends: it made a program
+      (a SPAWN), else it sent (a traveller), else neither.
+    - An idle run's SEND (where idle runs may SEND, 9.2) carries no
+      sender. So what its arrival makes at the far end founds a lineage of
+      its own.
 
 ### 13.4 The viewer
 
@@ -2385,6 +3595,40 @@ gates.
   map of life.
 - **An events timeline:** facts and labels together, filterable, and linked
   to the map.
+- **As built at gate 1 [step 12; 2026-11-11]:**
+  - **Places** as tiles, coloured by how many programs each holds (the map
+    comes at gate 3).
+  - **The place inspector.**
+  - **Its memory page by page**, coloured by owner, lineage, permission or
+    size class.
+  - **Three charts:** programs and threads, births and deaths, distinct
+    paths tried.
+  - **The frame is new and small** (immediate-mode, as Nova 1's was), not a
+    port of Nova 1's 5,000 lines. Nova 1's setup page, scrolling and zooming
+    widgets, genome browser and phylogeny come when they're needed.
+  - **A headless render** matches a stored image pixel for pixel. A world
+    opened from a snapshot draws exactly as the one it was saved from.
+- **As built at gate 3 [details at build, step 6; 2026-11-16]:**
+  - **The map** takes the memory strips' place in the middle, the tiles
+    staying on the left; a key (V) switches the two (Damian's choice). It
+    draws the landscape's land and water, the links with bridges lighter,
+    and the places as squares at their positions, the inspected place
+    framed with its links marked; a click picks the nearest place.
+  - **Four colourings (C):** population (dimmer as the voltage falls);
+    lineage territories (each place's largest lineage, dimmer as its share
+    falls); network device on or off; and queue fill and drops (each link by
+    its fuller end's queue, of its room; each place by the messages dropped
+    there since the world was built or opened, on a log scale: report-only
+    counters, never saved; Damian's choice).
+  - **The inspector** adds the place's queues, inboxes and drops.
+  - **Charts:** with a map, the second row shows gate 3's: messages sent,
+    delivered and PINGs answered; messages dropped (no room, stranded, lost,
+    cut); and colonists, with the colonies alive and settled (by the origin
+    test's criteria). A key (G) switches back to gate 2's power row
+    (Damian's choice).
+  - **With no map** the views are gate 2's, pixel for pixel.
+  - The other colourings and overlays above come with the gates that make
+    them.
 
 ### 13.5 Stats [starting point]
 
@@ -2425,19 +3669,171 @@ first run (2).
     - whether the crash at a cut-out lets early life survive (7.6);
     - whether one program taking all memory freezes a place (9.4).
   - The lever in reserve is a visit that reboots a place (7.8).
+  - **The first answer: a fail** [2026-11-15, `build-plan-gate2.md` 11
+    step 9].
+    - 33% of counted windows turned over, and 47% of crowded ones, against
+      the 90% agreed in advance.
+    - The origin regression reached stage 4 in 8 of 20 seeds, against the
+      10 it needed.
+    - Frozen places ended only at cold starts.
+    - Next: the widened saved-state rule on trial (9.4), against the same
+      pass mark (`design-review-gate2-2026-11-15.md`).
+  - **The second answer: a pass** [2026-11-16, `build-plan-gate2.md` 11
+    step 10; agreed with Damian]. The same 20 seeds, with the widened
+    saved-state rule (9.4):
+    - 586 of 586 counted windows turned over, and 448 of 448 crowded ones,
+      from 13 seeds.
+    - The origin regression reached stage 4 in 13 of 20 seeds.
+    - The 9.4 test world's takers all ended by memory failing, within
+      26,000 to 50,000 ticks, against 1.7 million before.
+    - With the rule on, the measure can't fall short: every program alive
+      at a window's start died within it. It stays as it is, since gate
+      2's question was whether full places freeze.
 - **Gate 3:**
-  - does life spread?
+  - does life spread? A lineage spreads when it settles a place it arrived
+    at (13.3) [2026-11-16, `build-plan-gate3.md` 2; agreed with Damian].
+    The pass mark is set in `build-plan-gate3.md` 7 before the first run;
   - whether CPU saturation shuts arrivals out completely (10.4);
   - whether blind SENDs pile onto a few places (11.1);
   - the cost of recomputing routes at nightfall (11.3);
   - whether the map itself works (6.1).
+  - **The runs are at 48 places a seed,** at gate 2's budget of 10¹²
+    instructions [2026-11-16, `build-plan-gate3.md` 2; agreed with Damian].
+    - At gate 2's rate that budget buys a 1,000-place world under a million
+      ticks, and stage 4 took 5 to 15 million at 48 places. So at full size
+      nothing would arise to spread.
+    - Test worlds with hand-placed migrants, at 1,000 places and 10,000 for
+      the routing cost, test the map and the network at the size the
+      design is for (R7: evidence about the mechanism, not about life).
+    - Whether life spreads on a full-size map is the next question, not
+      this gate's.
+  - **The answer: a pass** [2026-11-19, `build-plan-gate3.md` 11 step 8;
+    confirmed by Damian]. The 20 seeds at their second run
+    (`runs/gate3-2`), with idle runs not SENDing and arrivals holding at
+    most half a place's cores (10.4):
+    - a lineage settled a place beyond the one it began in, in 17 of the
+      20 seeds, against the 5 agreed in advance: 9,187 settlements of
+      1.57 million colonies founded;
+    - the origin regression reached stage 4 in 18 of 20 seeds, against
+      the 10 it needed, and stage 5 in 17;
+    - 57,803 of 57,808 counted windows turned over, and 50,251 of 50,255
+      crowded ones, from 17 seeds;
+    - strict places never passed stage 3: all the life at stages 4 and 5
+      is in lax places.
 - **Gate 4:**
   - whether crowds creep in on soft sources (4.2);
   - whether heat settles or oscillates (5).
+  - **Does the physics shape it?** [2026-11-19, `build-plan-gate4.md` 2;
+    agreed with Damian. The naming of ground and the direction changed
+    2026-11-20, before any judged run, `build-plan-gate4.md` 7 and 11;
+    Damian: "Either direction"] Each place, in each window of 200,000
+    ticks, is named by what a full place gets there, with its cores kept
+    busy and nothing else living: hot (over a quarter of its core time
+    lost to heat trips), dim (over a quarter lost to cut-outs, or its
+    reset region's memory off for over a quarter of the time) or fair.
+    The name is worked from the seed and its sources, so a crowd can't
+    change the name of its own ground. The physics shapes life if fair
+    ground and hot ground differ by at least a factor of two in the
+    programs they hold, whichever way, and fair and dim ground likewise;
+    the direction is reported. The first reading is reported beside it,
+    not judged: ground named by what happened to the place in the
+    window, with fair ground holding clearly more than hot and than dim.
+    The pass mark is set in `build-plan-gate4.md` 7 before the first
+    run, with the regressions: the origin test's stages, gate 2's
+    turnover and gate 3's spread.
+  - The two checks above are reported with fixed definitions, not judged,
+    since either outcome is an answer.
+  - **The runs are at 48 places a seed** (2), with test worlds at 1,000
+    places for the geometry of bands.
+  - The regressions are also the first 20 seeds under 9.4's stack rule. A
+    pilot of gate 3's world under that rule runs first, to tell its
+    effect from the physics'.
+  - **Judged in the combined run** [2026-11-20, Damian: one 20-seed run
+    for gates 4 and 5 (2)]. Gate 4 has no 20-seed run of its own. Its
+    mark is read from the combined run's ground record, where gate 5's
+    wear, disasters and four mechanics act on the same ground, so it
+    says how the physics shapes life in gate 5's world, not what gate
+    4's physics does alone. It is judged on the whole combined run. The
+    same measure on the place-windows gate 5 left alone (fresh ground,
+    no patch over the place, no kill there) is reported beside it, and
+    both go to Damian if the two disagree. A run of gate 4's world
+    alone, every gate 5 strength off, is made only if the mark fails
+    [Damian, 2026-11-20: "Agreed"].
+  - In the combined run the judged naming is the paragraph above's, as
+    changed on 2026-11-20, and the reading on the ground gate 5 left
+    alone uses it too. Under gate 5 a place changes over a run, and
+    its name is worked on the place as built [Damian, 2026-11-20:
+    "Yes, as built"]: on the first map, each device as dealt and
+    unworn, with only what is fixed before the run at that tick, the
+    sources' schedules and the straits' partings (11.6). Wear,
+    failures and patches are left out, since wear and failures come
+    from load and a crowd would rename its own ground again. A
+    respawned place's later windows are left out of the mark and
+    counted (`build-plan-gate5.md` 5, step 15).
 - **Gate 5:**
   - how often cascades happen (12.2);
   - whether reading input pays enough for injection to arise (9.8);
   - whether old, worn places punish long-lived lineages (12.5).
+  - **Does it stay interesting?** [2026-11-20, `build-plan-gate5.md` 2;
+    agreed with Damian] The gate judges whether new kinds keep taking
+    ground late in the run:
+    - a genome group (13.2) **leads** a place at a window's start when it
+      has more of the place's programs than any other group, and at least
+      stage 4's numbers of them (10.6): 20 or more, a tenth of the
+      place's programs, half of them born as copies;
+    - a **first lead** is a group leading a place for the first time in
+      the run, at any place;
+    - each seed's run from its stage 4 to its end is cut into **eras** of
+      2 million ticks; its **late eras** are the whole eras in the second
+      half of that span, and an era **has change** if a first lead comes
+      in it. [Details at build, 2026-11-20, `build-plan-gate5.md` 11:
+      the late eras are the later half of the seed's whole eras, the
+      odd one counted early, so 7 eras are 4 early and 3 late; a
+      stretch shorter than an era at the seed's end is no era; a first
+      lead before stage 4 belongs to no era.]
+
+    A world thinned to one program a place, as gate 3's seed 15 was, has
+    no group of 20 anywhere, and a world where one group leads everywhere
+    and nothing new grows has no first leads; both fail. Groups split by
+    drift as well as by adaptation, so it measures change, not progress,
+    and the report says so. The pass mark is set in `build-plan-gate5.md`
+    7 before the first run, with the regressions: the origin test's
+    stages, gate 2's turnover, gate 3's spread and gate 4's ground.
+    Chosen over judging the regressions alone, which never tests the
+    question; over beating gate 4's run by the same measure, which could
+    fail a world that does stay interesting (it is reported, not
+    judged); and over 12.5's succession, which is one mechanism.
+  - **The three checks above are reported with fixed definitions,** not
+    judged, since either outcome is an answer:
+    - **cascades:** a place goes off in a tick when devices there cut
+      out or trip, and passes it on to a proximity neighbour that goes
+      off within a few ticks after, at the edge its voltage moved toward:
+      rising before a trip, falling before a cut-out. Places that go off
+      in the same tick pass nothing to each other. A cascade is a chain
+      of two places or more, named by what began it (a strike, a swell or
+      load), and reported per 1,000 place-days with its size and the
+      stiffness of the source it began at;
+    - **reading input and injection:** a lineage reads input if its
+      RECVs that return bytes come to at least one a member a day; its
+      share of led places and births is set against its share of
+      programs, a correlation. An overrun is a RECV whose message runs
+      past the end of its buffer's allocation, counted by what it reached
+      (own code, kin, another lineage, a stack, free memory); an
+      injection is a thread found running bytes an overrun wrote from
+      another lineage's message, still as written;
+    - **worn ground:** a place-window is worn if wear has slowed its
+      cores by a tenth or more at its voltage, on average over the
+      window, or a device there has failed and waits for its visit. Holds
+      (stage 4's hold, 13.3) ending on worn and on fresh ground are
+      reported by age. Long-lived lineages pay for their success if old
+      holds sit on worn ground more than young ones, and holds there end
+      sooner.
+  - **Gate 4's ground measure** stays as a regression: a core's time lost
+    to failure is neither a cut-out nor a heat trip, and a failed
+    reset-region device counts toward dim.
+  - **The runs are at 48 places a seed** (2): one 20-seed run for gates 4
+    and 5 together, and a comparison run with the four chosen mechanics
+    off (2).
 - **Numbers set by runs:**
   - page and memory-device sizes (6.3);
   - service costs and the exact crossing (8.4, 9.7);
@@ -2450,14 +3846,18 @@ first run (2).
 
 ### 14.2 Decisions still open
 
-- Whether the error floor varies per device, so a few parts are flaky
-  (7.5).
 - A trade-off curve for the network device (7.2).
 - The GPU and NPU: a condition in which each wins, before either is unparked
   (R20). If unparked: EXIT for lanes, a launch cap and device sharing, and
   NMATMUL's calling convention (9.5).
 - Large point sets in the viewer, which would need D3D11On12 (2).
 - Which other parts of Nova 1 to reuse (2).
+
+- **Places far larger than 4 MB** [2026-11-19]. The OS's and memory's
+  tables are sized for the worst case when a place is built, 11 bytes for
+  each of the place's own, and a tick's cost follows the threads alive
+  (`build-plan-observe.md` 9, step 6). A 250 MB place needs tables that
+  follow use and a tick that doesn't pay for waiting threads.
 
 ### 14.3 Settled on 2026-11-11
 
@@ -2591,15 +3991,20 @@ run.
 - **Saved state.** While a thread is off its core, its registers (A–D, IP
   and SP, 24 bytes) sit at the base of its stack allocation. So the usable
   stack is the stack size minus 24 bytes, and saved state fades and corrupts
-  with its memory.
-- **A new thread's registers:** A = SPAWN's starting value; B, C and D = 0;
-  IP = the start address; SP = the top of its stack.
+  with its memory. A bit of it failing ends the thread (9.4).
+- **A new thread's registers:** A = SPAWN's starting value; B, C, D and IP =
+  the start address, as an idle run's are; SP = the top of its stack
+  [2026-11-13, the design review after the origin test's levers; agreed
+  with Damian. Before, B, C and D were 0]. A real thread gets its start
+  argument in a register; and code that copied itself as an idle run finds
+  the same registers when it runs as a program.
 - **An idle run's registers:** A, B, C and D = its start spot (or landing
   spot) address, IP = that address. It has no stack.
 - **Handlers are per thread, one per kind.**
   - **Entry:** A, B, C, D and IP are pushed onto the thread's stack, IP goes
     to the handler, and A gets a value for the kind:
-    - a fault: its code (memory, stack);
+    - a fault: its code (memory, stack, and from gate 5 the watchdog,
+      9.1);
     - arriving data: the port;
     - a timer: 0;
     - low voltage: the core's voltage reading.
@@ -2617,9 +4022,9 @@ failing soft.
 | Call | Arguments | Result |
 |---|---|---|
 | ALLOC | A size: unsigned. 0, or more than the largest size class, fails. B permission: B mod 3 (0 data, 1 executable, 2 both); "both" fails on a strict place. C device: signed. 0 is any, k > 0 is the k-th fastest, k < 0 the k-th slowest, each clamped to the devices that exist | Address, or 0 |
-| FREE | A: the start of an allocation held by the caller's program (or run) | 1, or 0 |
+| FREE | A: the start of an allocation held by the caller's program (or run), and not a live thread's stack (9.4) | 1, or 0 |
 | PROTECT | A: any address in the page. B: B mod 3 as for ALLOC. Fails unless the caller's program holds every allocation in the page, and on a strict place for "both" | 1, or 0 |
-| SPAWN | A: an address in an executable or "both" page, in an allocation the caller's program (or run) holds. B: the starting value. The gift rule is in 9.4 | The thread id (> 0), or 0 |
+| SPAWN | A: an address in an executable or "both" page, in an allocation the caller's program (or run) holds. B: the starting value. The gift rule is in 9.4, and a live thread's stack is never given | The thread id (> 0), or 0 |
 | EXIT | — | — |
 | SLEEP | A > 0 sleeps that many ticks; A = 0 sleeps until an interrupt; A < 0 ends this turn | — |
 | SETCLOCK | A: the level, clamped to the step range (a setting) | The level applied |
@@ -2644,59 +4049,103 @@ failing soft.
   - device count, neighbour count;
 - **device B:** kind, speed, nominal threshold, free bytes;
 - **neighbour B:** id, voltage, temperature, idle cores, free memory. This
-  one costs a hop.
+  one costs a round trip [2026-11-16, `build-plan-gate3.md` 2; agreed with
+  Damian]:
+  - the thread waits twice the link's delay, outside the queues, and the
+    neighbour's OS answers, as it answers a PING (11.2);
+  - it reads the neighbour as it was at the barrier when the request
+    landed, so the answer doesn't depend on timing between places;
+  - if either place's network device is off, every reading but the id is
+    0, as an empty list's index reads 0;
+  - neighbours are data neighbours: the places a data link reaches.
+
+**In detail [details at build, step 5; 2026-11-11]:**
+
+- **SENSE's units:**
+  - temperatures in tenths of a degree C, voltages in millivolts;
+  - the tick's low 32 bits;
+  - the turn's time left in cycles;
+  - idle cores are working cores with no thread on them (a core running an
+    idle run counts as idle).
+- **SENSE's devices** are listed cores first, then memory devices, then
+  disks. A core's speed is its stock cycles per tick; a memory device's or
+  disk's is its latency in cycles. A disk's free bytes are its size, since
+  the disk is raw.
+- **SETCLOCK's level** is in tenths of stock speed: 10 is stock, and the
+  range is 5–15 (settings).
+- **A handler's frame** is 20 bytes: IP on top, then D, C, B and A (A was
+  pushed first). A fault handler finds 1 in A for a memory fault, 2 for a
+  stack fault.
+- **SETHANDLER for a timer** with a period of 0 clears the timer's handler
+  as well.
+- **Calls an idle run may not make** fail with 0 in A (RECV also sets B to
+  −1); EXIT, SLEEP and HRET just do nothing.
+- **A call's cost** in 9.7 includes the crossing. An E core pays about 1.6
+  times as much (26 sixteenths per cycle against 16).
+- **A program's id in the facts** is the place's number plus one, times
+  2⁴⁰, plus a count kept per place. So ids are unique in the world, and
+  independent of how many host threads run it.
 
 ### A.5 The shortest replicator, traced
 
-**On a lax place: 18 bytes.** The parent sits at address S. Its C is 0, as
-every SPAWNed thread's is.
+[Rewritten 2026-11-13 for the conventions agreed in the design review after
+the origin test's levers: a new thread starts with B, C and D at its start
+(A.3), and ALLOC's result lands in D as well as A (A.4). The earlier 18-byte
+replicator's `SWP D` no longer brings the parent's address back. Both below
+are traced in tests/test_os.cpp.]
+
+**On a lax place: 14 bytes.** The parent sits at address S, with B, C and D
+= S.
 
 | Offset | Instruction | Bytes | After it |
 |---:|---|---:|---|
-| 0 | MOV IP | 1 | A = S |
-| 1 | STO D | 1 | D = S |
-| 2 | MOV # 2 | 2 | A = 2 |
-| 4 | STO B | 1 | B = 2 ("both") |
-| 5 | MOV # 18 | 2 | A = 18 |
-| 7 | SYS # ALLOC | 2 | Size 18, permission both, device C = 0 (any). A = N, the new address, or 0 |
-| 9 | SWP D | 1 | A = S, D = N |
-| 10 | STO B | 1 | B = S |
-| 11 | CPY # 18 | 2 | 18 bytes copied from S to N |
-| 13 | MOV D | 1 | A = N |
-| 14 | SYS # SPAWN | 2 | N lies outside the allocation holding IP, so N's allocation passes to a new program, whose thread starts at N with A = S. A = the thread id |
-| 16 | JMP # −16 | 2 | Back to offset 0 |
+| 0 | MOV # 14 | 2 | A = 14 |
+| 2 | STO B | 1 | B = 14, which is 2 mod 3 ("both") |
+| 3 | SYS # ALLOC | 2 | Size 14, permission both, device C = S. A = D = N, the new address, or 0 |
+| 5 | MOV C | 1 | A = S |
+| 6 | STO B | 1 | B = S |
+| 7 | CPY # 14 | 2 | 14 bytes copied from S to N |
+| 9 | MOV D | 1 | A = N |
+| 10 | SYS # SPAWN | 2 | N lies outside the allocation holding IP, so N's allocation passes to a new program. Its thread starts at N with A = S (B, the starting value) and B, C and D = N. A = the thread id |
+| 12 | JMP # −12 | 2 | Back to offset 0 |
 
-- **The child** starts at N with A = S, B = C = D = 0. Its first two
-  instructions set A and D to N, so it runs the same sequence at its own
-  address.
-- **When memory runs out,** ALLOC returns 0, D becomes 0, and CPY faults
+- **The child** runs the same sequence at its own address: its C is its own
+  start.
+- **The size doubles as the permission.** 14 is 2 mod 3, so storing it in B
+  asks for "both". On a lax place "data" does too (9.3), so any size that
+  isn't 1 mod 3 works.
+- **Shorter, but not everywhere: 11 bytes.** `MOV # 11; SYS # ALLOC; CPY #
+  11; MOV D; SYS # SPAWN; JMP # −9` leaves B at its own start, so its
+  ALLOC's permission is its address mod 3. It works where that is 0 or 2,
+  two addresses in three. At 1 its new block is executable only, and its
+  CPY faults.
+- **When memory runs out,** ALLOC returns 0 in A and D, and CPY faults
   writing to address 0. The parent's only thread ends, and so does the
   parent. That gives early turnover. A two-byte check would avoid it, and
   selection will likely find one.
-- **An origin from an idle run** has C equal to its start spot, not 0. The
-  device argument then clamps to a real device, so it still works.
+- **The device is C,** its own address, which clamps to the slowest memory
+  device. A copier that wants another sets C.
+- **An origin from an idle run** starts with the same registers (A.3), so
+  the same bytes work as a run and as a program.
 
-**On a strict place with 64-byte pages: 24 bytes.** The copy must be made as
-data on a whole page, then made executable with PROTECT.
+**On a strict place with 64-byte pages: 20 bytes.** The copy must be made as
+data on a page of its own, then made executable with PROTECT.
 
 | Offset | Instruction | Bytes | After it |
 |---:|---|---:|---|
-| 0 | MOV IP | 1 | A = S |
-| 1 | STO D | 1 | D = S |
-| 2 | MOV # 0 | 2 | A = 0 |
-| 4 | STO B | 1 | B = 0 (data) |
-| 5 | MOV # 64 | 2 | A = 64: a whole page |
-| 7 | SYS # ALLOC | 2 | A = N |
-| 9 | SWP D | 1 | A = S, D = N |
-| 10 | STO B | 1 | B = S |
-| 11 | CPY # 24 | 2 | Copied |
-| 13 | MOV # 1 | 2 | A = 1 |
-| 15 | STO B | 1 | B = 1 (executable) |
-| 16 | MOV D | 1 | A = N |
-| 17 | SYS # PROTECT | 2 | The page becomes executable. This works because the program holds the whole page |
-| 19 | MOV D | 1 | A = N |
-| 20 | SYS # SPAWN | 2 | A new program at N |
-| 22 | JMP # −22 | 2 | Back to offset 0 |
+| 0 | MOV # 63 | 2 | A = 63 |
+| 2 | STO B | 1 | B = 63, which is 0 mod 3 (data) |
+| 3 | SYS # ALLOC | 2 | 63 bytes take a 64-byte slot, the only one in its page. A = D = N |
+| 5 | MOV C | 1 | A = S |
+| 6 | STO B | 1 | B = S |
+| 7 | CPY # 20 | 2 | Copied |
+| 9 | MOV # 1 | 2 | A = 1 |
+| 11 | STO B | 1 | B = 1 (executable) |
+| 12 | MOV D | 1 | A = N |
+| 13 | SYS # PROTECT | 2 | The page becomes executable. This works because the program holds the whole page |
+| 15 | MOV D | 1 | A = N |
+| 16 | SYS # SPAWN | 2 | A new program at N |
+| 18 | JMP # −18 | 2 | Back to offset 0 |
 
 **Pages of 256 or 1,024 bytes** need more bytes to form the size, because #
 reaches only 127 (for example, `MOV # 64; SHL # 2`).
@@ -2729,7 +4178,7 @@ reaches only 127 (for example, `MOV # 64; SHL # 2`).
 | Running | The quantum or turn ends, or it yields | Ready |
 | Running | SLEEP, RECV waiting, PING, SEND's transmission, DREAD or DWRITE, SENSE of a neighbour | Waiting, until its condition. Disk I/O waits for the barrier |
 | Running | An interrupt for a registered kind | In its handler, until HRET |
-| Any | EXIT; a fault with no handler; a fault in a handler; running on a core when it cuts out or fails; its stack's memory failing or fading past use | Ended |
+| Any | EXIT; a fault with no handler; a fault in a handler; running on a core when it cuts out or fails; its stack's memory device failing; a bit of its saved state failing, by fading, a cosmic-ray flip or an edge error (9.4) | Ended |
 
 **An allocation:**
 
@@ -2766,7 +4215,9 @@ reaches only 127 (for example, `MOV # 64; SHL # 2`).
 **The order of a tick:**
 
 1. **Boundary inputs:** the day's phase; the sources' states (swings,
-   drop-outs, swells, ramps); patches and strikes; visits due [gate 5].
+   drop-outs, swells, ramps); patches and strikes; visits due; cuts;
+   straits parting or joining; the current's heading and strength [gate
+   5].
 2. **Conductances:** each device's draw is worked out from the last tick's
    voltage, temperature and activity, and turned into a conductance,
    G = P ÷ V².
@@ -2784,19 +4235,28 @@ reaches only 127 (for example, `MOV # 64; SHL # 2`).
    core runs its quantum × speed × clock factor cycles. Error countdowns and
    access counters run here.
 6. **The barrier:**
-   - disk I/O completes, in order;
-   - messages advance through their hops (11.3);
+   - disk I/O completes, in order, with worn blocks' flips as they are
+     written [gate 5];
+   - messages advance through their hops, at most one hop each, joining
+     queues in a fixed order (11.3); waiting messages reroute (11.6); the
+     current's blocks are copied and queued after programs' messages, and
+     written into the reset region as they land (12.6) [gate 5];
+   - the out-of-memory killer, at places crowded long enough (9.1) [gate
+     5];
    - arrivals join port 0 queues;
-   - RECVs are delivered;
+   - RECVs are delivered, and data interrupts set pending (9.5);
+   - neighbour SENSE readings are taken (A.4);
    - routes are recomputed if the topology changed.
 7. **Heat:** devices exchange with their place, places with the outside and
    their land neighbours. Every step is clamped so it can't overshoot the
    balance it's moving toward.
 8. **Memory and disk:**
    - fading, by each device's leak ranks;
-   - the cosmic-ray floor;
+   - the cosmic-ray floor, each device's at its own floor (7.5);
+   - weak cells' flips (7.4);
    - rowhammer flips;
-   - worn-block flips;
+   - the threads with a bit of saved state failed in this step, by any of
+     these or an edge error, end (9.4);
    - wear increments.
 9. **Facts and samples.**
 
@@ -2810,14 +4270,20 @@ reaches only 127 (for example, `MOV # 64; SHL # 2`).
 - **Memory draw:** holding draw + per-access draw × the last tick's accesses.
 - **Network device draw:** constant, plus per byte. **Cooling device draw:**
   rising with its place's temperature.
+- **Above a device's maximum,** its constant draws are multiplied by
+  (V ÷ Vmax)² (4.4).
 - **Device temperature:** T ← T + (P − h × (T − T_place)) × dt ÷ C, clamped.
 - **Place temperature:**
   T_p ← T_p + (Σ heat in − c × (T_p − T_out) − Σ k × (T_p − T_neighbour)) ×
   dt ÷ C_p, clamped.
 - **Wear per tick:**
-  dW = dt × w₀ × 2^(d × (T − T_ref) ÷ 10) × (1 + v × max(V − Vmax, 0)),
-  where d is doublings per 10 °C. Disks also add their writes, per block.
-  Wear raises Vth in proportion.
+  dW = dt × w₀ × 2^(d × (T − T_ref) ÷ 10) × 2^(v × max(V − Vmax, 0) ÷
+  100 mV), where d is doublings per 10 °C and v doublings per 100 mV over
+  the maximum [2026-11-20, `build-plan-gate5.md` 2; agreed with Damian.
+  Before, the voltage factor was (1 + v × max(V − Vmax, 0)), which can't
+  break a device with a spike without ruining it with a swell (7.4)].
+  Disks also add their writes, per block. Wear raises Vth in proportion.
+  A link's wear is (I ÷ I_ref)² × (R ÷ R₀) a tick (7.4).
 - **The error floor and edges:** each result has a chance of being wrong,
   ε = floor + edge(V) + clock(over stock).
   - The engine draws "results until the next wrong one" from a geometric
@@ -2839,6 +4305,13 @@ reaches only 127 (for example, `MOV # 64; SHL # 2`).
 - Conductances span many orders of magnitude, because water links fall off
   exponentially. So the solve uses per-unit scaling and 64-bit fixed point.
 - The formats and the tolerance are fixed before the first run.
+- **The solve [2026-11-19, `build-plan-gate4.md` 2; agreed with Damian]:**
+  voltages in microvolts and conductances in 2⁻²⁰ siemens, in 64-bit
+  integers with 128-bit products. Gauss–Seidel sweeps in place order on
+  one host thread, started from the last tick's voltages, until no place
+  moves by more than the tolerance or the sweep cap is reached. A capped
+  solve leaves the voltages its last sweep gave, and is counted. Places
+  read their voltage rounded to the millivolt.
 
 ## Appendix D. The laws on one page, and the settings count
 
@@ -2851,7 +4324,8 @@ reaches only 127 (for example, `MOV # 64; SHL # 2`).
    leakage and idle draw. Cut-outs (with a gap and a minimum off-time) and
    heat trips.
 3. **Error:** wrong results near the edges and above stock clock, plus a
-   floor everywhere. Memory fails to hold bits by leak rank.
+   floor everywhere, far higher on a few flaky parts. Memory fails to hold
+   bits by leak rank, and its weak cells as it wears.
 4. **Heat:** two temperatures, Newton's cooling, spread over land links;
    water is a sink.
 5. **Wear:** grows with heat, overvoltage and writes, and raises the
@@ -2861,10 +4335,13 @@ reaches only 127 (for example, `MOV # 64; SHL # 2`).
 8. **Memory:** pages, size classes, access by page, ownership by
    allocation. Nothing is zeroed.
 9. **Programs:** a SPAWN outside your own code gives an allocation to a new
-   program. A program ends with its last thread.
+   program. A program ends with its last thread. A thread ends when a bit
+   of its saved state fails. A place crowded for a day loses a program,
+   drawn by the bytes it holds (9.1).
 10. **Scheduler:** round robin in rotating quanta of time; SETCORE pins;
     per-turn clocks.
-11. **Interrupts:** faults, data, timers and low voltage, through handlers.
+11. **Interrupts:** faults (the watchdog's among them), data, timers and
+    low voltage, through handlers.
 12. **Reset region:** idle runs, stepping start spots, a cap, halting, and
     prompt runs for arrivals.
 13. **Disk:** raw; I/O at the barrier; the boot block; the cold start.
@@ -2880,10 +4357,12 @@ reaches only 127 (for example, `MOV # 64; SHL # 2`).
 - sources (appearance by area, lifetime, swings, drop-outs, swells, ramps);
 - patches and strikes;
 - link cuts;
-- maintenance visits and respawning.
+- maintenance visits and respawning;
+- straits parting and rejoining (11.6);
+- replication currents (12.6).
 
-So there are sixteen laws and six boundary inputs. It fits, with no room to
-spare.
+So there are sixteen laws and eight boundary inputs. It fits, with no room
+to spare.
 
 **Settings, a rough total (Claude's estimate, to be counted when the
 registry exists):**
@@ -2899,8 +4378,9 @@ registry exists):**
 | OS, scheduler and reset region | 16 |
 | Instruction costs (two tables) and service costs | 60 |
 | Wear, visits, respawning and symptoms | 15 |
+| Gate 5's four chosen mechanics (12.5) | 15 |
 | Observers | 10 |
-| **Total** | **about 290** |
+| **Total** | **about 305** |
 
 Nova 1 had 385. The curves keep most of the catalogue to a few numbers per
 kind (7.3). Tuning this by hand is the risk Nova 1 met, and it may need a
@@ -2910,7 +4390,7 @@ settings-search tool again.
 
 | Item | Placeholder |
 |---|---|
-| Places | 1,000 |
+| Places | 1,000 (the runs of gates 1 to 3 use 48, 14.1) |
 | Links per place | about 4 |
 | Map width | about 32 links |
 | Cores per place | 2–8, typically 4 |

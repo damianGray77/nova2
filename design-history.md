@@ -5638,3 +5638,1185 @@ per-place columns this way.
     ALLOC and a second SPAWN (9.2, A.2, appendix E);
   - an index into an empty list reads 0 in SENSE (A.4);
   - a new convention in A.1: "x mod n" reads x as unsigned 32-bit.
+- 2026-11-11: Build step 3 (memory) fixed the allocator's details, added to
+  design.md 9.3 as [details at build]. These are Claude's choices within
+  the design, open to Damian's veto:
+  - size classes: 8, then two per doubling up to the page (a setting gives
+    powers of two only);
+  - larger allocations take whole pages, up to memory.max_alloc
+    (placeholder 4,096 bytes), which is appendix A's "largest size class";
+  - first fit by address throughout;
+  - PROTECT on a multi-page allocation changes only the page named;
+  - the reset region takes whole pages at its device's start, and only idle
+    runs may touch it, since programs hold nothing there;
+  - SENSE's "free memory" counts free pages and free slots.
+- 2026-11-11: Build step 4 (the interpreter) fixed which writes count as
+  results for the error floor, added to design.md 7.5 as [details at
+  build]: one per value written (registers, memory, the stack, or IP by
+  STO, SWP, POP or a taken jump; SWP writes two). The neutral bytes write
+  nothing and so can't go wrong. The E core's cost table placeholders are
+  18, 55 and 528 sixteenths for simple work, MUL and DIV, against the P
+  core's 16, 48 and 320; CPY costs 74 + 37 per byte, against 64 + 32.
+- 2026-11-11: Build step 5 (the OS) ran appendix A's two replicators in
+  test worlds and matched the traces register by register, children
+  included, with the out-of-memory death as described. Details fixed while
+  building, added to design.md (9.4 and after A.4) as [details at build]:
+  a thread that ends while its program lives on gives its stack back;
+  SENSE's units and device order; SETCLOCK in tenths of stock; the handler
+  frame's layout and fault codes; a zero timer period clearing its handler;
+  idle runs' refused calls answering 0; call costs including the crossing,
+  with E cores paying about 1.6 times; and program ids unique in the world
+  by place and count.
+- 2026-11-11: Build step 6 (the scheduler). A hand-placed replicator now
+  fills a two-core place by itself (140 copies in 60 ticks), the same way
+  on two runs. Details fixed while building, added to design.md 9.5 as
+  [details at build]:
+  - time is kept at each core's stock speed, and a thread at clock k gets
+    k/10 of the cycles;
+  - overruns are debt, taken from the thread's next quantum (so a SPAWN
+    keeps its thread off the core for about a tick);
+  - a thread leaving mid-quantum leaves the rest to the next ready thread,
+    which pays the switch;
+  - at a turn's end the thread requeues only if someone is waiting;
+  - one ready queue for unpinned threads and one per pinned kind, ordered
+    together;
+  - interrupts are delivered at quantum starts (low voltage, then data,
+    then timers); timers fire at tick starts; an interrupt wakes only SLEEP
+    0 waits;
+  - ready threads take cores from idle runs at quantum starts.
+- 2026-11-11: Build step 7 (the reset region, idle runs and the raw disk).
+  A replicator placed in the reset region is found by an idle run, its copy
+  becomes a program from static, and its line made 67 copies in 30 ticks.
+  Details fixed while building, added to design.md (9.3, 10.2) as [details
+  at build]:
+  - the start-spot step must share no factor with the region's size;
+  - idle runs run at stock speed, and their cap counts every cycle;
+  - halted cores look for a reason to start at each quantum;
+  - halted is the core's state, kept through threads using the core;
+  - disk results land at the barrier, with the latency (placeholder 20,000
+    cycles plus one per byte) paid from the next quantum;
+  - an idle run's DREAD is forgotten if a thread takes its core first.
+- 2026-11-11: Build step 8 (the noise floors). Error rates and cosmic-ray
+  flips match their settings within statistical bounds, rates of 0 give
+  nothing, and the same seed gives the same flips. Details fixed while
+  building, added to design.md 7.5 as [details at build]:
+  - the error rate at clock level k is the floor times 2^((k − 10) ÷ d),
+    with d placeholder 1 tenth: 32 times at 1.5 times stock;
+  - a change of level redraws the countdown;
+  - geometric draws use a fixed-point log2, in integers only;
+  - the cosmic floor counts bit-ticks per memory device, covers memory but
+    not disks, and its flips in the reset region count as writes to it;
+  - edge errors wait for the varying supply at gate 2.
+- 2026-11-11: Build step 9 (places, the world, threads and snapshots).
+  Places are built from settings and filled with static, and `nova2 run`
+  and `nova2 resume` work. The world comes out the same on 1, 2 and 24
+  host threads and in reversed dispatch order, and a snapshot taken at
+  tick 20 resumes to the unbroken run's hash at tick 40.
+  - Details fixed while building, added to design.md (2, 7.3): gate 1's
+    hardware draw; the world hash covering exactly the saved state, field
+    by field; snapshots at the barrier, with only run.* changeable on
+    resume. Nova 1's thread pool came across as is, and its snapshot
+    container with a payload in place of its world.
+  - A finding for the origin test: static faults within a few
+    instructions, so halted cores wait for the retry, and the retry sets
+    the search rate. In 48 places over 200 ticks there were 820 idle runs
+    and 278,000 instructions at the placeholder retry of 100 ticks, against
+    47,000 runs and 15 million at 1 tick. At gate 1 nothing draws power, so
+    halting saves nothing yet. Claude proposes a 1-tick retry for the
+    origin test, to be agreed with the other numbers before the first run
+    (build-plan-gate1.md 7).
+- 2026-11-11: Build step 10 (facts and observers). The facts log
+  reconstructs the family tree exactly, generation depths and lineages
+  agree with it, and a watched world hashes the same as an unwatched one.
+  Details, added to design.md 13.3 as [starting point]:
+  - every parentless birth founds a lineage;
+  - stages 1 and 2 are a lineage's first faithful birth, and its first
+    faithful birth from a faithfully born parent;
+  - the Scavenger and Hijack heuristics;
+  - genome groups at 0.8 of shared 3-byte runs;
+  - "crowded" means free memory under a tenth;
+  - distinct paths are counted in a 65,536-entry table.
+  Nova 1's compressibility estimate came across, made for bytes and
+  without its lambda. Birth images are now hashed like genomes, so the two
+  compare.
+- 2026-11-11: Build step 11 (the origin-test runner and the first
+  benchmark). The results are in build-plan-gate1.md 11.
+  - The interpreter: 85 M instructions a second on one thread, 1.15
+    billion on 24, about 2 to 4 times below the design's estimate.
+  - Static and replicator worlds scale about 6 times; the per-access
+    counters cost under 1%.
+  - A dry run of the origin test (2 seeds, 5 × 10⁸ instructions each,
+    nothing seeded): random code made 59 programs, none of them faithful
+    copiers, all dead by faults. The regions' compressibility fell from
+    0.97 to about 0.85.
+  - The stage criteria live in the core (lineage_stage), so they're
+    tested.
+  - Per-access counters for data accesses (not fetches) count activations
+    of a page different from the context's last, and once per page for
+    CPY.
+- 2026-11-11: Build step 12 (the gate 1 views), and with it gate 1's
+  build. `nova2 view` opens a config or a snapshot and runs the world live,
+  or renders one frame headless to a PNG.
+  - On screen it draws with Direct2D and DirectWrite; headless, into a WIC
+    bitmap, software-rendered.
+  - The views: places as tiles, the place inspector, memory page by page
+    (by owner, lineage, permission or size class), and three charts.
+  - A headless render matches the stored tests/golden/view_gate1.png pixel
+    for pixel, and a snapshot draws exactly as the world it was saved from.
+  - The frame is new and small rather than a port of Nova 1's 5,000 lines.
+    Nova 1's setup page, widgets, genome browser and phylogeny come when
+    needed.
+  - Direct2D, DirectWrite and WIC joined the code-rules allowlist, as
+    approved.
+- 2026-11-11: The first origin run started (runs/origin-1).
+  - Damian chose to run with Claude's four recommendations and tune from
+    the results ("a run's going to give us some concrete answers, more
+    than just hypothesizing about the numbers"):
+    - the budget is 10 million ticks a seed, which replaces design 10.6's
+      10¹² instructions: once life appears, programs spend most of their
+      time paying for SPAWN, so an instruction budget would stretch the
+      seeds that succeed;
+    - the idle-run retry is 1 tick, now the default;
+    - the error floor stays at 10⁻⁵;
+    - the 10 seeds run side by side, 2 host threads each.
+  - The rest of build-plan-gate1.md 7 as proposed. Each seed's samples go
+    to runs/origin-1/samples.
+- 2026-11-11: The first origin run finished: FAIL, with no seed at stage
+  1 (results in build-plan-gate1.md 11).
+  - 230,233 births from static across 10 seeds of 10 million ticks, none
+    faithful; almost all had an empty genome.
+  - Random code finds ALLOC and SPAWN but almost never copies itself
+    between them.
+  - The reset regions stagnate: under 1% of 21.5 billion idle runs took a
+    new path.
+  - One program in seed 3 spawned about 1,200 threads into its own code.
+- 2026-11-11 to 12: The lever trials (runs/pilot-1; results in
+  build-plan-gate1.md 11). 10.6's first three levers, and an experimental
+  switch that starts new threads with B, C and D at their start address
+  (`os.thread_regs = start`), were tried alone and together, 8 seeds of
+  500,000 ticks each.
+  - Together they gave the first births by programs, but no program copied
+    8 bytes or more into a child.
+  - The apparent stages 1 to 3 were an artifact. First, empty genomes
+    matched. Then, on a lax place, 4-byte gifts inside the parent's page let
+    children run the parent's code in place, with a one-byte genome.
+  - A faithful birth now needs a genome of at least 8 bytes
+    (`observe.min_genome`). This is Claude's change to the measure, for
+    Damian to confirm.
+- 2026-11-12: The second origin run started (runs/origin-2): all the
+  trialled levers at full length, 10 seeds of 10 million ticks.
+- 2026-11-12: Lever 4 piloted (runs/pilot-2; results in
+  build-plan-gate1.md 11), on Damian's go-ahead. The experimental switch
+  `os.alloc_d` makes a successful ALLOC leave its address in D too.
+  - It aims about 16 to 19 times as many copies at new memory.
+  - With every earlier lever, it made 408 copies of region code.
+  - Still no program copied itself.
+- 2026-11-12: The second origin run failed (results in build-plan-gate1.md
+  11). Seed 5 reached stage 1 and no seed went further.
+  - In seed 5, one place's reset region grew copier code from tick 6
+    million. Run as a program, one of its genomes (47 bytes) copies itself,
+    child included, only with lever 4's `os.alloc_d`.
+- 2026-11-12: The third origin run (runs/origin-3): run 2's settings plus
+  `os.alloc_d`, at full length. It failed, but closely: stage 4 in 3 of 10
+  seeds against a pass mark of 5, and stage 5 in two of them.
+  - Faithful births went from 3 to 305,890.
+  - Only lax places got past stage 1; every strict place stayed at stage 0.
+  - `nova2 origin` now makes its output folders. Run 3 lost its genome
+    dumps because they didn't exist.
+- 2026-11-12: Run 3's stage 4s checked (runs/origin-3c). They were met by
+  one surviving program in a place of 4 or 6 (seeds 7 and 9), or by members
+  none of which were born faithful (seed 6). Most copiers are relays, one
+  child each. Seed 9 grew one real population late: 100 of a place's 132
+  programs in 100,000 ticks, with 209 genome groups.
+  - Proposed for Damian to decide: stage 4 to need a minimum number of
+    living members, most of them copies (faithful, or at least half like
+    the parent), holding the share for origin.span ticks counted from when
+    it first did.
+- 2026-11-12: Stage 4 tightened, as proposed, on Damian's go-ahead. He had
+  wanted a longer lineage criterion for Nova 1 too.
+  - A lineage holds its place at a check when it has 20 living members or
+    more (`origin.members`), at least half of them born as copies
+    (`origin.copies`), and they are at least 10% of the place's programs.
+  - A copy is a faithful birth, or a near one: a program wrote 8 bytes or
+    more into its child, at least half like its own genome (3-byte runs in
+    common, as the groups use).
+  - Stage 4 is a hold of 100,000 ticks without a break, checked at every
+    observer sample. One failed check ends a hold, and the next starts
+    afresh. The span used to count from the lineage's first birth, and the
+    share was checked only at that moment.
+  - Run 3's settings are rerun to score them under it (runs/origin-3d).
+- 2026-11-12: Damian confirmed the 8-byte minimum for a faithful birth
+  (`observe.min_genome`), made after the lever trials.
+- 2026-11-12: Run 3's settings scored under the tightened stage 4
+  (runs/origin-3d): FAIL, stage 4 in 1 of 10 seeds. Seed 9's growing
+  population in place 13 is the one pass: it held 100 of 132 programs, 77
+  of them born as copies, for 100,000 ticks. Seeds 6 and 7, which passed
+  before, never held a place. Stage 5 still comes at the same check as
+  stage 4, since it counts groups made before establishing too.
+- 2026-11-12: Relays traced in place (seed 9 snapshots). They don't copy.
+  A program runs past the end of its block on a lax page and SPAWNs its own
+  block. R15's test ("the allocation holding the caller's IP") misses this,
+  so the block is given away while in use, and the parent faults. The
+  observer counted these hand-overs as faithful copies, because a block's
+  written extent stays with it. In 100,000 ticks of seed 9, 11,636 of
+  11,639 births were hand-overs. Seed 9's place 13 population is real
+  copying: ALLOC, CPY, SPAWN from several threads. Proposed for Damian:
+  close the hole in SPAWN for page-shared execution, and stop counting a
+  birth into the parent's own block as a copy.
+- 2026-11-12: The hand-over gap closed, on Damian's go-ahead. A thread
+  running in no allocation of its own (lax page sharing) now runs on every
+  allocation its program holds in that page, so SPAWN there starts a
+  thread. The observer counts a birth into the parent's birth block as a
+  hand-over, never a copy. Run 3's settings run again as run 4
+  (runs/origin-4).
+- 2026-11-12: Run 4 (runs/origin-4): FAIL, stage 4 in 1 of 10 seeds.
+  Hand-overs fell to 898, faithful births from 401,118 to 42,315, and run
+  3d's stage 3s in seeds 1, 6 and 7 went with them. Seed 2 is the pass, and
+  real copying: a 17-byte copier (ALLOC 17, CPY 117 bytes from its own
+  start, SPAWN through `SYS IP` when its address is right) began at
+  5,595,091 in a lax 1,024-byte place and held 151 of 280 programs for
+  100,000 ticks. It relies on the experimental `os.thread_regs = start`
+  and `os.alloc_d`. Strict places still never reach stage 1. The run used
+  about 70% of 10.6's 10^12-instruction budget a seed.
+- 2026-11-12: Stage 5 counts only the groups a lineage makes after it
+  reaches stage 4, and seeds run on past it, on Damian's go-ahead. Before,
+  it counted groups made while the lineage was taking its place, so it came
+  at the same check as stage 4 and stopped the seed there. Reaching stage 4
+  is now for good. The report says whether each seed's established lineage
+  lasted. Run 5 runs run 4's settings to 10.6's full budget, 10^12
+  instructions a seed (runs/origin-5).
+- 2026-11-12: Run 5 (runs/origin-5), run 4's settings to 10.6's full
+  budget of 10^12 instructions a seed: FAIL, stage 4 in 1 of 10 seeds.
+  Run 4's worlds, extended to 12.1 to 16.3 million ticks. Seed 2's copier
+  family held its place to the end, 9.2 million ticks after taking it, but
+  made no new groups while the place was crowded, so no seed reached stage
+  5. Nothing else held a place in the extra ticks. The other copiers are
+  chains: each member leaves one child, so one failed copy ends the
+  lineage, and most died out within a few thousand ticks. Levers 1 to 4
+  are all in use. Lever 5, the instruction set, is the last before the
+  design review.
+- 2026-11-12: Lever 5 (the instruction set) drafted, on Damian's go-ahead
+  after run 5. A new command, `nova2 trace`, runs one genome alone in a
+  sandbox place. It showed that seed 2's copier works in only a third of
+  pages (its ALLOC's permission is its address mod 3), and that seed 1's
+  chain copiers do their SPAWN past their own blocks, outside the recorded
+  genome. Two experiments, both off by default: `cpu.top`, spare codes made
+  TOP (a jump to the start of the allocation holding it), and
+  `os.spawn_top`, a SPAWN that makes a new program sends its caller back to
+  the start of its block. In the sandbox each turns a one-child copier into
+  one that loops (20 and 27 faithful children against 1). IP wrapping at an
+  allocation's end was left out: any code that doesn't fault would loop
+  forever, and nothing at gate 1 ends such a thread. A pilot of three
+  variants (TOP in one spare code, in four, and spawn_top), 10 seeds of 5
+  million ticks, runs in runs/pilot-3.
+- 2026-11-13: The lever 5 pilot (runs/pilot-3, 5 million ticks a seed):
+  `os.spawn_top` works and TOP doesn't. With spawn_top, seed 1 reached
+  stage 4 at 3,135,300, the first on lax 64-byte pages and the first within
+  5 million ticks: a lineage of 245,132 births over 730 generations, many
+  children per member instead of run 5's one-child chains. It held its
+  place to the end, but after 3.5 million ticks it all but stopped copying,
+  and nothing ends its members, so the place froze and no stage 5 followed.
+  Seed 3 boomed and busted: seven lineages of up to 130,810 births each
+  died out or dwindled. Its copier, traced, is a 9-instruction ALLOC, CPY,
+  SPAWN loop that works only in a third of pages (ALLOC's permission is
+  its address mod 3). spawn_top had 582,583 faithful births across the
+  seeds against run 5's 75 at the same tick. TOP in one spare code reached
+  stage 2 in two seeds, and in four codes only stage 1, with twice run 5's
+  threads alive and 3 faithful births: it gives junk code loops sooner than
+  it helps copiers. One seed in 10 is still short of the pass mark of 5.
+- 2026-11-13: Run 6 (runs/origin-6), run 5's settings plus lever 5's
+  `os.spawn_top`, to 10.6's full budget: FAIL, stage 4 in 1 of 10 seeds,
+  the same count as run 5. Seed 1's lineage (the pilot's) held its place
+  for 11.1 million ticks, but froze: 95 members throughout and 54 faithful
+  births in its last 9.2 million ticks, so no stage 5. Run 5's seed 2
+  copier never appeared, because spawn_top changed seed 2's world before
+  it. Stage 3 came in 5 seeds and faithful births rose 3.5 times, but the
+  other copiers boomed and died out. With 10.6's five levers spent, next is
+  the design review with Damian: frozen places with no way to end a
+  program, booms that bust, the B mod 3 permission trap and barren strict
+  places, the three experimental switches every copier leans on, and no
+  snapshots to trace a lineage in.
+- 2026-11-13: The design review after the origin test's five levers
+  (design-review-origin-2026-11-13.md), all seven proposals accepted by
+  Damian. Lever 5's experiments, `os.spawn_top` and TOP, are dropped:
+  spawn_top broke 9.1, principle 12 and principle 9, and didn't change the
+  count at stage 4. `os.thread_regs = start` and `os.alloc_d` become the
+  rules (A.3, A.4), with ALLOC's result in D on a failure too, so a copier
+  in a full place still faults (A.5). A lax place has no no-execute bit,
+  so its data pages are "both" (9.3); before, the copiers found worked
+  only in a third of pages. A.5's replicators, rewritten for the new
+  conventions, are 14 bytes on a lax place and 20 on a strict one.
+  Turnover stays at gate 2; strict places being barren at gate 1 is
+  recorded as a finding; snapshots of seeds are to be built; the pass
+  mark stays until the changes are tested. Pilot 4 (runs/pilot-4) tests
+  them against run 5.
+- 2026-11-13: Pilot 4 (runs/pilot-4), run 5's settings under the design
+  review's rules, 10 seeds of 5 million ticks: stage 4 in 4 of 10 seeds
+  (1, 3, 5 and 6) and stage 5 in 3, within a third of 10.6's budget. Run 5
+  had none at that tick, and run 6 had one at its end. Faithful births
+  were 3,123,484 against run 5's 75. Run 5 already had `os.thread_regs`
+  and `os.alloc_d`, so the change is a lax place's data pages running and
+  a failed ALLOC setting D to 0. The copiers traced lean on the first:
+  seed 5's 51-byte copier takes its block's permission from its own
+  address mod 3 and now works at 2 addresses in 3, not 1; seed 1's runs
+  code past its own block. Holds no longer freeze: most children die by
+  faulting, so members come and go, and later lineages took over the
+  holding places in seeds 1 and 5. Booms and busts still happen in seeds
+  3 and 6. Strict places stay barren. Next is run 7, to the full budget
+  with place snapshots.
+- 2026-11-13: Run 7 (runs/origin-7), pilot 4's settings to 10.6's full
+  budget with place snapshots: PASS, stage 4 in 5 of 10 seeds, exactly
+  the pass mark. Its first 5 million ticks repeated pilot 4 row for row,
+  so seeds 1, 3, 5 and 6 carried their stage 4 in. The fifth, seed 8,
+  came at 15,415,200, with 1.4% of its budget left: a 91-byte copier (a
+  23-byte unit repeated) took 132 of its place's 147 programs in 25,000
+  ticks, then stopped, with 362 of 365 threads waiting for a message that
+  never came. Pilot 4's "holds don't freeze" didn't last: copying stopped
+  in seed 1 after 12 million ticks, in seed 5 after 6 million and in seed
+  6 after 8 million, and the holding lineages stayed, mostly sleeping
+  until an interrupt. Only seed 3 was still copying at the end, with
+  lineages taking turns in four places. Seed 2's late copier (10 bytes)
+  filled its place but copied too badly to hold it. The test passes as
+  written, narrowly, and three of the five holds end asleep. Whether that
+  is gate 1's pass, whether stage 4 should ask for copying during the
+  hold, and whether to confirm with more seeds are for Damian.
+- 2026-11-14: Run 8 (runs/origin-8), run 7's settings for seeds 11 to 20,
+  to confirm run 7's narrow pass: PASS, stage 4 in 6 of 10 seeds (13, 14,
+  15, 18, 19 and 20), each with at least a quarter of its ticks left.
+  With run 7, stage 4 in 11 of 20 seeds against a mark of 10, and stage 5
+  in 6. Every seed reached stage 1 and 19 of 20 stage 3. The holds split
+  about evenly: in 5 of the 11 stage 4 seeds (3, 15, 18, 19 and 20)
+  lineages were still copying and taking turns at the end; in 6 (1, 5, 6,
+  8, 13 and 14) copying had stopped and the place slept, most threads
+  waiting for an interrupt, full or not. Strict places stayed barren.
+  Gate 1's origin test passes on 20 seeds; whether a full place keeps
+  turning over is gate 2's question, and these runs answer it
+  "sometimes".
+- 2026-11-14: Gate 1's origin test passes, accepted by Damian: stage 4 in
+  11 of 20 seeds within 10.6's budget (runs 7 and 8), against a mark of
+  10. With the build done, the first benchmark and the side measurements
+  (faults weren't too harsh for the first copiers; the reset regions kept
+  changing, compressibility about 0.84 falling to about 0.77; the
+  per-access counters cost under 1%), gate 1 is complete. Turnover in a
+  full place, where half the holds fell asleep, is carried to gate 2.
+- 2026-11-14: Gate 2's build plan (build-plan-gate2.md) drafted, and its
+  five design gaps accepted by Damian, as proposed:
+  1. The supply before gate 4 is a source per place, a voltage behind an
+     internal resistance that the place's own draw sags through the
+     one-tick lag, varying by swings, drop-outs and a day at each place
+     (each at its own phase), all drawn before the run. Power draw comes
+     with it; heat stays at gate 4. Chosen over a voltage simply scheduled
+     because R1 and 4.3 make crowding matter, which is gate 2's question;
+     the day is brought forward (option a over b) because night is the
+     design's main source of cut-outs (7.6).
+  2. A thread ends when a bit of its saved state fades (appendix B's
+     "fading past use"), so threads asleep for good in faded memory don't
+     hold it until a cold start.
+  3. A cold start reboots the place's OS: every program ends, with a new
+     death cause "cold start", and then the boot block runs.
+  4. Port 0's queue and prompt runs come forward from gate 3, for the boot
+     block.
+  5. 7.6's fallback, pausing instead of crashing at a cut-out, is built as
+     a switch, off by default.
+  Applied to design.md 2, 7.6, 9.4, 10.5 and 13.1. The numbers in the
+  plan's section 7, the pass mark among them, are still to agree before
+  the first gate 2 run.
+- 2026-11-14: Gate 2's baseline: runs 7 and 8 rerun with the turnover
+  measure on, their stages repeating exactly. Gate 1's world turned over
+  73 of 1,164 counted windows of 200,000 ticks (6%), and 31 of 342
+  crowded ones (9%). Its places hold a fixed set of residents, living
+  about 1.6 million ticks, with offspring dying young around them: 99.9%
+  of the dead in counted windows had been born in the window.
+- 2026-11-14: Gate 2's numbers (build-plan-gate2.md 7) agreed by Damian,
+  with the baseline in. The pass mark stays at 9 in 10 counted windows
+  and 9 in 10 crowded ones, for a new reason: a window starts with about
+  150 programs, so it turns over almost exactly when its residents' mean
+  life is under about 200,000 to 250,000 ticks, and the share counts the
+  full places that turn over. (The first draft's reason, that gate 1 had
+  about half its holds still copying, didn't survive the baseline.)
+  Added: a floor of 100 crowded windows from at least 5 seeds, so a world
+  that empties its places can't pass on a few windows; and windows that
+  turn over with a cold start in them count, decided before the runs,
+  with the report saying how many did. Fade's retention just below the
+  threshold set at 1,000 times its retention at 0 V, rising evenly on a
+  log scale. The rest as proposed.
+- 2026-11-14: Gate 2's supply built (build-plan-gate2.md step 3), and two
+  readings of section 7's drop-outs agreed by Damian: their lengths are
+  spread evenly on a log scale between 10 and 1,000 ticks, so half are
+  shorter than 100 (spread evenly in ticks, most would be long); and a
+  drop-out that isn't a blackout leaves between nothing and half of the
+  capacity, rather than taking up to half. Also from step 3: a device
+  below its threshold draws nothing, since constant draws would otherwise
+  pull a weak source to 0 V, and the network device gets a range for it
+  (600 to 1,300 mV, placeholders like the disk's).
+- 2026-11-14: Gate 2's cut-outs built (build-plan-gate2.md step 4), and
+  six readings of 7.6 agreed by Damian, all as built. I/O is in flight
+  from the barrier that did it until the next tick's device states, and
+  a disk cut-out cuts it at one point drawn along all of it. A failed
+  read answers 0 but leaves what it brought in the buffer. DREAD and
+  DWRITE wait for as long as the disk is out, since gate 1's calls have
+  no limit of their own. The pause switch puts the thread back in the
+  ready queue, where it may resume on another core. A core that comes
+  back starts a fresh idle run. The crash rule ends the thread part way
+  through its turn at the tick boundary, so threads whose turns line up
+  with the ticks get through; ending the thread that ran last was the
+  other reading. Also from step 4: on section 7's supply the P cores
+  cycle at night (out 20.7 ticks a time, 4.1% of their ticks), since at
+  a fifth of capacity their own draw moves the voltage by more than the
+  restart gap. It's left as it is, bounded by the off-time.
+- 2026-11-14: Gate 2's edge errors and memory fade built
+  (build-plan-gate2.md step 5), and seven readings agreed by Damian, all
+  as built. Edge errors are relative to the floor: within 50 mV of an
+  edge the total doubles every 10 mV closer, so 32 times the floor at
+  the edge, and a kind with no floor has none (a base rate of their own
+  was the other reading). The clock scales the floor but not the edge
+  part. Memory's edge errors are bits that fail to hold, at the cosmic
+  floor times the same factor, and like flips they only corrupt a saved
+  state: only fading ends a thread. A cell is a bit. A device fades only
+  while it's cut out and below its threshold, holds from there to its
+  restart, and the restart refreshes it. A varying dip adds up as a
+  dose, each tick at V counting as 1000^(-V / threshold) ticks at 0 V. A
+  thread's saved registers count only while it's off its core, and a
+  handler's frame counts on or off. Also from step 5: on section 7's
+  supply 3.9 million cells faded in 400,000 ticks but ended only 1
+  thread, so the devices that faded held almost no threads off their
+  cores (which places they were wasn't checked).
+- 2026-11-14: Gate 2's cold start and boot block built
+  (build-plan-gate2.md step 6), and eight readings agreed by Damian, all
+  as built. A cold start empties port 0's queue, the old OS's, before the
+  boot block joins it at the head. A block nobody wrote boots as static,
+  with no parent. The last writer is the last DWRITE to land with its
+  first byte in the block, whatever its length, so a rival writing one
+  byte there becomes the boot's parent though the code stays; a write
+  torn back to nothing restores the writer before it. Start spots keep
+  stepping through a reboot, so the block lands wherever the first core
+  to start is, cut short near the region's end. The observer keeps the
+  record of a writer that died as the block's last, so its boot carries
+  the lineage on, and a boot brings a lineage back from extinction. The
+  disk barrier checks that a request's thread is still waiting before
+  any bytes move. A boot's code stays in the region where it landed, and
+  idle runs that later copy it make births of static, with no parent:
+  only the prompt run carries the cause "boot". Also from step 6: step
+  4's crash test now uses a drop-out to a fifth, which cuts out the P
+  cores but not memory, since a blackout now reboots the place; and on
+  section 7's supply the 6 cold starts in 400,000 ticks found nothing
+  alive and no written block.
+- 2026-11-14: Gate 2's determinism, snapshots and cost checked
+  (build-plan-gate2.md step 7), and eight readings agreed by Damian, all
+  as built. The invariant checker is a function the tests call, not part
+  of the tick, so a run neither checks nor pays for it; the checked build
+  is the Debug test build, and the release build has no tests. The fuzz
+  world runs with every test run (three runs of 8 places, about 7
+  seconds) rather than as a soak on its own. Its crowded runs, and the
+  determinism world, raise the disk's threshold to 900 mV, above the
+  cores', so the disk cuts out with I/O in flight: a test setting, the
+  default unchanged. The ready-queue check goes one way, allowing entries
+  left by threads that have since run or ended, as the queue drops those
+  lazily. The benchmark times a tick's parts with the time-stamp counter
+  behind a switch only it turns on, the memory part split into fading
+  then the cosmic-ray floor. Fading's cost is left as it is: about 55 ns
+  a failed cell, half a place-tick on the fuzz world's supply but nothing
+  on section 7's, where gate 2's parts cost 2.5% of a place-tick (1.2% on
+  the steady supply). Also from step 7: static alone made one birth in
+  the fuzz world's 4,000 ticks, so the crowded runs, with programs placed
+  by hand, are what put threads through cut-outs, fading and cold starts.
+- 2026-11-15: Gate 2's views built (build-plan-gate2.md step 8), and
+  eight readings agreed by Damian, all as built. The stored image the
+  view test checks is now gate 2's, at 1,280 by 800, the window's
+  default, since the inspector no longer fits at gate 1's 960 by 600;
+  gate 1's image stays in tests/golden, unused. The inspector runs the
+  window's full height, with the charts in two rows under the places and
+  the memory. Tiles dim with the voltage and, beyond the plan, get a red
+  corner when a device is cut out, because a place with everything off
+  draws nothing, its voltage climbs back to the source's, and dimming
+  alone would show it bright. The voltage chart plots the mean and the
+  lowest over each sample, from 0 to the source's voltage, with the
+  thresholds as faint lines named in its legend, so a drop-out shorter
+  than a sample still shows; the observer keeps 4 bytes a place a sample
+  for it. Loading a snapshot works out the cores' speeds and the tick's
+  capacity, which aren't saved, so an opened snapshot shows them as they
+  were. "Births from boots" counts only boots of a block a program wrote;
+  a static boot shows only as a cold start. The turnover chart is the
+  world's, over the last 24 windows that began with a program alive. The
+  inspector's drop-out line shows the drop-out the last tick was in, or
+  else the next tick's, and a device's off-time left counts the next tick.
+- 2026-11-15: Gate 2's runs (build-plan-gate2.md step 9), and seven
+  readings agreed by Damian, all as built. **Gate 2 fails its pass
+  mark.** Under gate 2's world, 283 of 848 counted turnover windows turned
+  over (33%), and 130 of 279 crowded ones (47%), against the 9 in 10
+  agreed in advance; gate 1's world, the baseline, turned over 6% and 9%.
+  The floor was met: 279 crowded windows from 9 seeds. The origin
+  regression reached stage 4 in 8 of 20 seeds, against half (the
+  baseline 11); at the baseline's rate 8 or fewer comes about 13% of the
+  time. The windows that didn't turn over failed on their residents (562
+  of 565 lost under half their starters). They are gate 1's frozen places
+  again: seed 5's longest hold sat with 263 programs, no births and no
+  deaths, every thread asleep or waiting for an interrupt, until a cold
+  start ended them all. Cold starts made a third of the turnover, and 7
+  of the 8 first stage-4 lineages died out in a window with one. So gate
+  2's answer is the one section 8 predicted: no, not by the physics alone
+  at these rates. The 9.4 test world agrees: a memory-taker filling every
+  place of seed 1 with sleeping threads lasted until its place's first
+  blackout or near-blackout, 1.7 million ticks on average, and no
+  shallower drop-out, night, swing or cut-out ended one. Its fill is built
+  by hand at tick 0 through the OS's own SPAWN and ALLOC, proved equal to
+  the code's own fill on a steady supply, because the code's first thread,
+  alone on its P core while filling, died at night-time cut-outs in most
+  places. The test world is one seed with a taker in each of its 48
+  places, run to the origin test's budget. A taker's end is its last
+  thread's death, with that thread's cause, and the report names the
+  drop-out it ended in or after, since a blackout ends it by fading two
+  ticks before the cold start; threads lost before then are put down to
+  fading by elimination. A full place isn't quiet, as section 8 assumed:
+  its cores run idle runs on static all the time. The pass mark's three
+  settings (origin.turnover_share, origin.crowded_min,
+  origin.crowded_seeds) are section 7's numbers, the windows needed
+  rounded up. The 20-seed run kept snapshots, which the hand check used.
+  Next, by sections 8 and 10, is Damian's decision: the reserve lever (a
+  visit that reboots a place, 7.8) or another rule, and for the origin
+  regression the pause switch or a milder supply.
+- 2026-11-15: The design review of gate 2's fail
+  (design-review-gate2-2026-11-15.md), its four proposals accepted by
+  Damian. First, frozen places: the saved-state rule is widened from
+  "fades" to "fails", so a thread ends when any bit of its saved state
+  goes wrong by the physics (a fade, a cosmic-ray flip or an edge error),
+  while an overwrite still only corrupts it. Its anchor is Linux's
+  memory-failure handling, which can kill a process as soon as an error
+  is found in memory nobody is reading. At the cosmic floor of the runs,
+  a thread's 192 bits of saved registers take a wrong bit about every
+  5,200 ticks it spends off a core. It's built behind a switch,
+  os.saved_state_fails, off by default, and tried in a pilot of seeds 1
+  to 10 to 5 million ticks against runs/gate2-1. It becomes the rule only
+  if the pilot bears it out. The reserve lever and more outages were
+  turned down on the runs' own arithmetic: windows with a cold start
+  turned over 97% of the time and others 24%, so the mark would need a
+  cold start in about 9 windows in 10, and places that rebooted that often
+  wouldn't refill (boot blocks carried life across 57 times in 24,211 cold
+  starts). A low-memory killer was turned down because 416 of the 565
+  failing windows had a tenth or more of memory free. Second, the origin
+  regression is left to the rerun, with the pause switch next if it fails
+  again. Third, one cluster of cold starts (about 25 a place a seed
+  against section 7's 7) is traced and recorded. Fourth, the pass mark
+  stays.
+- 2026-11-16: The widened saved-state rule built and tried
+  (build-plan-gate2.md step 10), and its eight readings agreed by Damian,
+  all as built. It went in behind a switch, os.saved_state_fails.
+  Memory's edge errors and the cosmic-ray floor list every byte they
+  fail a bit of. After the memory step, each thread whose saved state
+  holds such a byte ends, cause "memory", in record order. Its saved
+  state is exactly fading's: its registers while off its core, and a
+  handler's frame on its core or off. An edge error fails its bit
+  whatever the bit reads back, as a faded cell does. The lookup scans
+  every thread record when any bit fails. That's about 1 µs a place-tick
+  at the runs' cosmic floor of 10^-6, the floor's part going from 520 to
+  1,560 ns, about 4% of section 7's place-tick. A faster index was left
+  until the rule had earned it. With the switch off, two of gate 2's
+  first run's seeds reproduced byte for byte to 200,000 ticks, against
+  that run's own binary. The 9.4 test world rerun (runs/taker-2,
+  added to the agreed pilot) saw all 48 takers end by memory failing,
+  after 37,442 ticks on average against 1.69 million, as the rule's
+  arithmetic says: 192 bits at 10^-6 a tick is a wrong bit about every
+  5,200 ticks a sleeper. The pilot (seeds 1 to 10 to 5 million ticks)
+  reached each stage in as many seeds as gate 2's first run, or more,
+  with far thinner populations. Claude proposed it too short to judge
+  crowding, which came only after 5 million ticks. The cluster of cold
+  starts, traced from tick 0 with a scratch probe, is a brown-out reset
+  loop, the physics as written and not a bug. With nothing drawing, the
+  voltage is back at the source's after the off-time, so every device
+  restarts at once. At under 1% of capacity the restart's draw pulls it
+  below every threshold, and the place cold-starts every 21 ticks until
+  the drop-out ends.
+- 2026-11-16: **Gate 2 passes**, at its second run (runs/gate2-2), and
+  the widened saved-state rule becomes the design's. Damian agreed the
+  run's three readings. The run was gate 2's first run again, all 20
+  seeds with section 7's numbers and the pass mark agreed in advance,
+  with the widened rule on and nothing else changed. 586 of 586 counted
+  windows turned over (the first run 283 of 848), and 448 of 448 crowded
+  ones (130 of 279), from 13 seeds. The origin regression reached stage
+  4 in 13 of 20 seeds (8; gate 1 11). A hand check recomputed every
+  window's flags from the rule and matched the report. Every one of the
+  140,784 programs alive at a counted window's start died within it, so
+  with the rule on the measure can't fall short. It stays as it is,
+  since gate 2's question was whether full places freeze, and what lasts
+  is lineages, by copying: holds over a million ticks in 8 seeds, up to
+  3.6 million, and 17.1 million faithful births (7.8 million). Programs
+  died 2.67 times a program-day (1.27), faults still most of it; the
+  rule ended 45 million threads. Strict places stayed at stage 0, as at
+  gate 1. The rule is now stated in 9.4, recorded in 14.1, and named in
+  appendices A to D. It's on by default, with the switch kept so gate
+  1's world and the baseline can still be run, and every earlier run
+  keeps its own binary. The run took 17.1 hours against 11.1. Seed 3
+  slowed about ninefold per instruction as its places crowded and ran at
+  16 million instructions a second against 37 to 70 for the rest. The
+  cause, traced the same day, was the observer's genome grouping (the
+  next entry); the rule's lookup is too cheap to explain it. Next, by the
+  build plan's section 10, is gate 3: does life spread?
+- 2026-11-16: Seed 3's slowness traced and fixed, and Damian agreed the
+  three readings (build-plan-gate2.md section 11, "Seed 3's slowness,
+  traced"). The places weren't slow. Place 34, replayed from its
+  snapshots, cost 11 to 12 µs a tick early and late. The observer's
+  genome grouping was: 13.2's greedy grouping compared each new genome
+  with every group's reference in turn, one thread after each tick's
+  barrier. Seed 3 made 1.4 million genomes in 191,000 groups, and the
+  grouping took 96 to 99% of the observer's time, about 11 of the run's
+  17 hours. The fix is an index of each 3-byte run's groups. A genome
+  joins only a group sharing at least ceil(threshold × n) of its n runs,
+  so only the groups on its n − ceil(threshold × n) + 1 rarest runs'
+  lists are checked, in group order, with the same comparison. That
+  picks the scan's group every time, so no result changes and 13.2
+  stands as written. A test checks it against a scan written apart, at
+  four thresholds, and fails when the filter is broken. Seven places
+  replayed with the old and new observers put 173,821 genomes in the same
+  groups, with the observer 25 to 38 times faster. Seed 3 rerun in full
+  matched gate2-2 byte for byte: samples, windows, genome dump, report
+  and the places in its snapshots. Its last tenth took 1.7 times its
+  first, where gate2-2's took 9. Gate 3 starts without this cost.
+- 2026-11-16: Gate 3's build plan (build-plan-gate3.md) drafted, and
+  Damian agreed its eight design gaps as proposed ("Agree all"), now in
+  the design. (1) Gate 3 builds the map's data side: land and water,
+  places by density with shuffled ids, data links (the Gabriel graph on
+  each landmass) and fixed bridges, each link's length, bandwidth and
+  delay, and the fields for hardware and OS values. Proximity links,
+  water as a conductor, grid borders, the cooling field and the day's
+  sweep wait for gate 4, and the supply stays gate 2's (2, 6.1). (2)
+  The gate 3 runs stay at 48 places a seed at gate 2's budget of 10^12
+  instructions: at 1,000 places that budget buys under a million ticks,
+  and stage 4 took 5 to 15 million. Test worlds at 1,000 and 10,000
+  places test the mechanics at full size (14.1, appendix E). (3) A
+  lineage spreads when it settles a place it arrived at: stage 4's hold
+  there, with the same numbers, its first member a colonist, and only
+  copies born there counted. An arrival carries its sending program for
+  the observers, as a boot carries its block's last writer, so the
+  colonist's lineage carries on (13.3, 14.1). (4) A neighbour SENSE
+  costs a round trip outside the queues, answered by the neighbour's
+  OS, and reads the neighbour as it was at the barrier the request
+  landed; every reading but the id is 0 if either network device is
+  off. Neighbours are data neighbours (11.1, A.4). (5) An arriving
+  message goes to the longest-waiting RECV first, with no interrupt;
+  otherwise every thread with a data handler for its port gets the
+  interrupt pending, raised once however many messages join (9.5). (6)
+  Inboxes are lost at a cold start, with port 0's queue, and kept whole
+  until then, replacing 11.5's fade, which had no cells to reach; a
+  network device that cuts out drops everything queued at it; a message
+  whose next hop is dark is dropped at its queue's head and counted
+  stranded, 11.6's lifetime of 0 until gate 5 (11.4, 11.5). (7) Time on
+  the network is in whole ticks, at least one a hop, a hop at most per
+  barrier, and messages meeting at a queue join by their source place's
+  id, then their order there (11.3, appendix C). (8) Each value gates 1
+  and 2 drew evenly is drawn as before, then dealt out to the places in
+  the order of its own field, nudged by a small scatter, so the world's
+  mix stays gate 2's and only where values sit changes; map.fields turns
+  them off, and world.map is landscape, none, grid or ring (6.1, 6.2,
+  7.3, 9.6). The plan's numbers and pass mark (its section 7) are agreed
+  before the first gate 3 run.
+- 2026-11-16: Gate 3's step 2, the map, built and checked (build-plan-gate3.md
+  11), and Damian agreed its three build choices ("Agree, start step 3").
+  (1) Every landmass is bridged: after the bridges of up to 2 a pair, no
+  longer than a quarter of the map's height, a landmass still apart is
+  joined to the rest by its shortest crossing, whatever its length (a
+  join). Section 7 asked for both, and they can't both hold when a
+  landmass's nearest crossing is longer; at 48 places 5 of 6 seeds needed
+  a join. (2) The longest bridge stays in the map's height, as section 7
+  gives it, an exception to 6.1's lengths in average link lengths. (3)
+  Two placeholders joined section 7's numbers: the fields' noise scale,
+  3 across the map as the land's, and bandwidth spread evenly on a log
+  scale by its field's rank. With no map and the fields off, gate 2's
+  world reran seed 5 to 1.6 million ticks byte for byte (6.1, 7.3).
+- 2026-11-16: Gate 3's step 3, links, routes and the network device, built
+  and checked (build-plan-gate3.md 11), and Damian agreed one change ("Yes,
+  at least 1 KB"): a link end's queue never holds less than the message
+  size limit. At 8 ticks of the narrowest bandwidth, 16 bytes a tick, a
+  queue held 128 bytes against a 1 KB limit, so a message bigger than a
+  link's queue could never cross it: about 16% of land links were closed to
+  a 200-byte message and 75% to a 1 KB one. Big messages are still dropped
+  first when queues fill, but no link is closed to them (11.5, the plan's
+  section 7).
+- 2026-11-16: Gate 3's step 4, SEND, RECV, PING, arrivals and handlers,
+  built and checked (build-plan-gate3.md 11). Damian settled three choices
+  before it was built. (1) A SEND or PING to its own place is delivered
+  locally, after the network device's latency, crossing no link; so a PING
+  to itself takes twice the latency ("Deliver locally"). (2) An idle run
+  waits on its core for its SEND's transmission and its neighbour SENSE's
+  round trip, holding the core; a ready thread can still take it, which
+  ends the run ("Wait, holding the core"). (3) A PING's request and echo
+  are 8 bytes each, a new placeholder in the plan's section 7 ("8 bytes")
+  (11.2).
+- 2026-11-17: After gate 3's step 7 (the test worlds, build-plan-gate3.md
+  11), Damian agreed one change ("Yes, change it"): a static run that
+  starts in the bytes an arrival last landed in the reset region, while
+  all of them are as they landed, takes that arrival's sender as its
+  parent, as the arrival's own prompt run does; a later landing over any
+  of them, or any other change to them, ends that. A program it makes is
+  born from the arrival too: a colonist if it's its lineage's first member
+  at the place, and not a copy made there. Before, 13.2 gave every static
+  birth no parent. In the test worlds a core's next static run after an
+  arrival starts region.step (13) bytes into it, and static runs took up
+  the migrants' landed bytes and began lineages of their own: with them,
+  every place had a colony of the migrant's code, while the migrant's
+  lineage alone reached 29% to 52% of them. So 13.3's measure missed most
+  of the spread (13.2, 13.3).
+- 2026-11-17: Damian kept 10.2 as designed after gate 3's step 7 ("Keep
+  10.2"): a ready thread can still take the core from a prompt run, as from
+  any idle run. In the sensing test losing the core was not the main reason
+  arrivals failed (28% to 37% of those that did nothing; most of the rest
+  found no room on the device they asked for), though in the blind test it
+  was (73%). And with 13.2's change above, an arrival that loses its core
+  leaves its bytes for a static run to carry on its sender's lineage (10.2,
+  13.2).
+- 2026-11-17: After gate 3's step 8 pilots and flood test
+  (build-plan-gate3.md 11), Damian changed two rules ("Build and pilot both
+  but NOT off by default"). (1) An idle run may not SEND: its SEND fails
+  soft, so code leaves a place only in a program's SEND; a setting
+  (os.idle_send) brings the old rule back (9.2, 10.3, 10.4). (2) Arrivals
+  from other places hold at most a set share of a place's cores at once
+  (region.arrival_share, half), rounded down but at least one, so static
+  keeps the rest; a boot block is never held back (10.4). Before, a SEND
+  straight from an idle run's start sent the run's own bytes, and landed at
+  a port 0 those bytes ran and SENT themselves on: in the flood test over
+  99% of idle runs' SENDs sent their own bytes, mostly to a port 0, and as
+  the queues filled, arrivals took every core that came free, so static
+  runs' share of the cycles fell below 2% and the origin of copying starved
+  (1 seed of 10 at stage 1 by tick 2 million, against gate 2's 6). Both
+  are piloted, each alone and together, before the 20 seeds run.
+- 2026-11-19: **Gate 3 passes**, at its second run (runs/gate3-2).
+  Damian confirmed it ("Yes, passed"). The run was the 20 seeds with
+  build-plan-gate3.md 7's numbers and the pass mark agreed in advance
+  (2026-11-17), on the build of 2026-11-18 with the observers'
+  redesign; the first run (runs/gate3-1) was stopped with 11 seeds done,
+  slowed late by a bug in the observers. A lineage settled a place
+  beyond the one it began in, in 17 of the 20 seeds (the mark is 5):
+  9,187 settlements of 1.57 million colonies founded. The three seeds
+  without (3, 6 and 18) never got going before their budget ran out.
+  The origin regression reached stage 4 in 18 of 20 seeds (the mark is
+  10; gate 2 13), and stage 5 in 17. 57,803 of 57,808 counted windows
+  turned over, and 50,251 of 50,255 crowded ones, from 17 seeds (the
+  mark is 90% of each). Strict places never passed stage 3, so all the
+  life at stages 4 and 5 is in lax places. A scan of the run's 43 world
+  saves found no corruption, and one thing left for Damian to decide: a
+  thread's saved registers are written at its stack's address after its
+  program gave the stack away or freed it (14.2). The overnight changes
+  of 2026-11-19 (forgetting for a run with no end, 13.2; the window
+  never waiting on a seed; the streamed save) are still for him to
+  confirm (14.1, build-plan-gate3.md 11 step 8).
+- 2026-11-19: **A live thread's stack is in use** (9.4, A.4). Damian
+  chose it of three ("I'll go with your recommendation"; the others were
+  to leave it as the world's physics, or to end a thread when its stack
+  leaves its program). A SPAWN into the stack of a live thread of the
+  caller's program, the caller's own included, starts another thread of
+  that program and gives nothing; a FREE of it fails. It extends R15 (an
+  allocation in use is never given away). Before, the OS went on writing
+  a thread's 24 bytes of saved registers at its stack's address after
+  the program had given the stack to a new program or freed it, into
+  memory another program held, on a strict place too; and the thread's
+  end could free a later allocation of its program that had landed
+  there. The bug scan of gate 3's worlds found it: 48 of 1,015,757
+  threads in the run's 43 saves. A switch (os.stack_held, on by default)
+  brings the old rule back, so gates 1 to 3's runs can be run as they
+  were; they were all made under the old rule. A world saved under the
+  old rule and carried on under the new keeps its threads in that state
+  until they end.
+- 2026-11-19: Damian confirmed the overnight changes of 2026-11-19 as
+  built ("Yes, they stand"): forgetting for a run with no end
+  (observe.forget, 13.2; build-plan-observe.md 3.5), and viewer step 10
+  (build-plan-viewer.md): the window never waits on a seed, the world's
+  save is streamed, saves and progress lines come by the clock, `nova2
+  check` reads a saved world through the engine's checks, and a run's
+  window writes its own picture to a file. He had approved them in
+  advance the night before, to be told in the morning.
+- 2026-11-19: **Gate 4's plan agreed** (build-plan-gate4.md). Damian
+  agreed its ten design gaps, its pass mark and the stack rule's pilot as
+  Claude leaned ("Agree as leaned"). Nothing is built yet, and the plan's
+  other numbers (its section 7) are still to agree before the first run.
+  What was agreed, with what it was chosen over:
+  - **What "the physics shapes it" means** (14.1). Each place, in each
+    window of 200,000 ticks, is hot, dim or fair, by the core time it
+    lost to heat trips and to cut-outs; the gate judges the programs on
+    each kind of ground, with the regressions beside it. The two named
+    checks (creep on soft sources, heat settling or oscillating) are
+    reported with fixed definitions, not judged, since either outcome is
+    an answer. Chosen over judging the regressions alone, which a physics
+    that changes nothing would pass, and over judging whether life
+    follows sources as they come and go, which rewards short-lived
+    sources against the origin.
+  - **The runs are at 48 places a seed** (2), with a band about 3 links
+    wide, and test worlds at 1,000 places for the geometry. A 10-link
+    band has no room on a map about 7 links across in 5 to 14 landmasses.
+    Chosen over 200 places at four times the budget (about a day and a
+    half, and no longer like with like).
+  - **Sources are many and small,** about one for every four places, and
+    dark ground is left to luck (2, 4.2). Chosen over a few large ones,
+    and over guaranteeing every landmass a source.
+  - **The day's span is a setting,** by default a whole day across the
+    map (4.3). Chosen over a fraction of a day, where the whole map has
+    night together.
+  - **The constant draws** stay constant inside a device's range and rise
+    as (voltage ÷ maximum)² above it (4.4, appendix C). Chosen over
+    leaving them constant, which would let a swell heat only working
+    cores, and over scaling them with voltage² everywhere, which would
+    change every place's draw from gate 3's.
+  - **The low-voltage interrupt** (9.5, 12.4): a thread takes it once,
+    when it starts a quantum on a core whose voltage is within the margin
+    of the core's cut-off, and again only after the voltage has been back
+    above the margin. As written before, it went to the thread on the
+    core as the voltage neared the cut-off, which in a crowded place is
+    rarely the thread on it when it cuts out. Also considered: every
+    thread with a handler, which would wake sleepers that were safe.
+  - **A heat trip of the reset region's memory ends in a cold start**
+    when it cools (5, 10.5). Chosen over letting it come back with
+    whatever fading left.
+  - **Swells and drop-outs start and end at once** until gate 5 brings
+    ramps (2, 4.3). Chosen over bringing ramps forward.
+  - **No SENSE reading of a device's temperature** (12.4). A new reading
+    would renumber SENSE's for every evolved program.
+  - **The forms left "details at build"**, as a set: the solve's formats
+    and sweeps (appendix C), sources' schedules and landing (4.2), water
+    crossings and shore drains (6.1), grid borders (6.2), cooling,
+    leakage, heat between places and fade when hot (5), and cooling
+    devices (7.7).
+  - **The stack rule's pilot** (14.1): gate 4's regressions are the first
+    20 seeds under 9.4's rule that a live thread's stack is in use, so a
+    10-seed pilot of gate 3's world under that rule runs first, to tell
+    its effect from the physics'. Chosen over rerunning gate 3's 20
+    seeds (about 9 hours), which comes back to Damian only if the pilot
+    shows a difference.
+- 2026-11-20: **Four mechanics chosen for gate 5** (Damian), from the
+  "chaos" mechanics discussed: flaky parts, straits that part and
+  rejoin, an out-of-memory killer with a watchdog, and migration out of
+  full places, each a setting with an off so a run can compare with and
+  without. The same day **replication currents replaced migration**
+  ("agreed on the weakness of the current and yes this should replace
+  migration"): migration would have moved programs unasked, against 9.1,
+  and gave nothing like wind or ocean currents. He dropped an OS update
+  that reshuffles the call numbers, and didn't choose memory compaction
+  or messier networks.
+- 2026-11-20: **9.1 amended** (Damian; `build-plan-gate5.md` 2, gap 14).
+  A fixed rule may act on a program by what it holds, or on a thread by
+  how it runs, the same way for all, never by its id, lineage or kind.
+  It reverses part of his decision of 2026-11-10, whose reason was that
+  an OS choosing who dies is a selection pressure designed in, and gate
+  2's turning down of a low-memory killer. Why now: late worlds thinned
+  to one program a place with hundreds of threads (gate 3's seed 15) or
+  over a thousand (`runs/open-2`), a failure the runs showed, which the
+  design's rule for adding a mechanic asks for. Two rules use it, both
+  at gate 5:
+  - **the out-of-memory killer:** a place crowded (free memory under a
+    tenth) for a day loses one program, drawn by the bytes it holds,
+    stacks included, so a big holder is likeliest but never certain;
+    cause "out of memory". Drawn by bytes rather than always the biggest
+    holder (Damian's first words), so the second biggest isn't the safe
+    size to be;
+  - **the watchdog:** a thread that runs a million cycles without a call
+    takes a new fault, "watchdog", which a handler can catch.
+
+  Chosen over the watchdog alone with 9.1 kept, which leaves fan-out
+  untouched since its threads call, and over a fair share of cores by
+  program, which reverses 9.5's "the main lever is the number of
+  threads". The risk 9.1 guarded against stays, so gate 5 has a
+  comparison run with the four mechanics off.
+- 2026-11-20: **Gate 5's plan agreed** (build-plan-gate5.md). Damian
+  approved everything as Claude leaned: its fifteen design gaps, its two
+  choices about runs and its numbers, the pass mark among them. Its
+  numbers marked "(gate 4)" are worked again from gate 4's run and
+  agreed then. Nothing is built yet. What was agreed, with what it was
+  chosen over:
+  - **What "stays interesting" means** (14.1): whether new kinds keep
+    taking ground late in each run, by first leads (a genome group
+    leading a place for the first time, at stage 4's numbers) in most
+    late eras of 2 million ticks, in enough seeds; with the four
+    regressions beside it, and the three named checks (cascades, reading
+    input and injection, worn ground) reported with fixed definitions.
+    Chosen over the regressions alone, which never test the question;
+    over beating gate 4's run by the same measure, which could fail a
+    world that stays interesting; and over 12.5's succession, one
+    mechanism.
+  - **The runs are at 48 places a seed,** at gate 4's budget (2). Chosen
+    over four times the budget, and over a few long seeds at 200 places.
+  - **Wear above a device's maximum doubles per 100 mV** (7.4, appendix
+    C). Chosen over appendix C's straight line, which can't break a
+    device with a spike without ruining it with a swell, and over a
+    breakdown voltage, a law of its own.
+  - **Worn memory grows weak cells** by its leak rank, which lose bits
+    while it is on (7.4). Chosen over the raised threshold alone, which
+    dropped 7.4's fixed spots.
+  - **A link wears by its loss,** so its rising resistance speeds its
+    wear (7.4). Chosen over wear by current alone, and by its ends'
+    temperatures.
+  - **Replacing the reset region's device is a hot swap,** not a cold
+    start (7.8, 10.5). Chosen over a cold start, the reboot visit in a
+    narrow form.
+  - **A fresh draw takes the place's dealt values** (7.3), and a
+    respawned place looks up its values in a table kept at setup. Chosen
+    over even draws from each range, and over keeping the old values.
+  - **A dark next hop is a failed link,** and a message's lifetime runs
+    from when it lost its route (11.6). Chosen over keeping gate 3's drop
+    for dark places.
+  - **Rowhammer counts over a refresh window,** as appendices C and E
+    had it (9.8). Chosen over 9.8's count a tick, which would make the
+    threshold about one activation a tick.
+  - **The falling cosmic-ray rate stays off** in the judged runs, a
+    lever if gate 5 fails (2, 7.5). Chosen over turning it on.
+  - **The forms left to build,** as a set: wear's arithmetic, failure,
+    disks and levelling (7.4, 7.6), visits and respawning (7.8), cuts and
+    rerouting's order (11.6), ramps (12.4), patches (12.3), strikes
+    (12.2), rowhammer's counting (9.8) and the observers' incarnations
+    (13.1).
+  - **Flaky parts** (7.5): 2% of cores and memory devices with a floor 3
+    to 100 times their kind's, a core's rising with wear. It settles what
+    7.5 and 14.2 left open. Chosen over a spread on every device, and
+    over a flaky region through the fields.
+  - **Straits** (11.6): half the straits part and rejoin by turns, in
+    spells of 2 to 20 million ticks drawn before the run. Chosen over
+    `map.unbridged` alone, and over slow-mending cuts.
+  - **The killer and the watchdog,** as 9.1's amendment above.
+  - **Replication currents** (12.6): blocks of 256 bytes copied by
+    address downstream along a heading that drifts by season, landing in
+    the neighbour's reset region; weak by default. Chosen over landing
+    in free memory, where nothing could run it, and at port 0, a prompt
+    run for every block.
+  - **The runs:** gate 4's ground record carries each place-window's
+    leading group and lineage, so gate 4's run is gate 5's comparison
+    with no rerun; and one comparison run of 20 seeds has the four
+    mechanics off. Chosen over a rerun of gate 4's world (9 to 13
+    hours), and over a run for each mechanic (40 to 56 hours).
+- 2026-11-20: **No 20-seed run until gates 4 and 5 are both built**
+  (Damian: "I want to hold off on doing the 20 seed run until both gates
+  are fully built"). Gate 4's 20 seeds run first, then gate 5's numbers
+  that depend on them are worked out, then gate 5's runs. So gate 5 is
+  built before gate 4 is judged.
+- 2026-11-20: **One 20-seed run for gates 4 and 5 together** (Damian:
+  "we only need a single 20 seed test that is a combined gate 4+5. I
+  don't think we need 2"). It replaces the order set earlier that day,
+  gate 4's 20 seeds first and then gate 5's. `runs/open-2` stays on its
+  own exe and keeps the host until that run needs it. What follows
+  (build-plan-gate5.md, status and step 15):
+  - **Gate 4's mark is read from the combined run's ground record.**
+    Gate 5's wear, disasters and four mechanics act on the same ground,
+    so it is reported as how the physics shapes life in gate 5's world,
+    not as gate 4's physics alone. Beside it, the same measure on
+    place-windows gate 5 left alone (fresh ground, no patch, no kill).
+    Claude proposed judging the mark on the whole run as agreed,
+    reporting the untouched reading, and making a run of gate 4's world
+    (9 to 13 hours) only if the mark fails; that is for Damian.
+  - **Gate 5's numbers that depend on gate 4** are worked from gate 4's
+    pilot (10 seeds to 2 million ticks), its build's test worlds and
+    gate 3's DWRITE rates, instead of gate 4's 20 seeds.
+  - **The ground-record columns** agreed earlier that day for reading a
+    separate gate 4 run have no such run to read. They were already
+    built and tested when the change came, so they stay in: ten columns
+    at the end of each ground row, observers only, with gate 4's first
+    twelve as they were. Gate 5's step 1 starts from them. Gap 1's
+    comparison of late change against gate 4's world now needs a
+    full-length run of gate 4's world.
+  - **The 1.6-million-tick reference** from gate 4's build, for gate 5's
+    equivalence test, stands, and was made that day
+    (`runs/gate4-reference`: seed 1, the same on 2 threads and across
+    two builds). Seed 1 has no life by that tick, so it checks physics
+    and static only.
+  - **The comparison run stays** (Damian, asked whether the single run
+    dropped it too: "Keep the comparison"). So the runs are the one
+    combined 20-seed run and the comparison run with the four mechanics
+    off, as agreed earlier that day. Claude had raised turning off every
+    gate 5 strength instead, gate 4's world at full length, and leaned
+    against it: the four's part, the killer's above all, would be mixed
+    with wear's and the disasters'. The agreed form stands.
+  - **Gate 4's pilot may run beside `runs/open-2`,** small and at low
+    priority (Damian, asked whether the half-hour pilot might: "Yes,
+    beside open-2"). It is the earliest check that gate 4's world still
+    makes life, and the source of gate 5's numbers that depend on gate
+    4. Gate 5's pilot and the test worlds weren't asked about.
+- 2026-11-20: **Storage: less stored before any compression** (Damian,
+  after the runs' disk use was measured). The build of gate 5 does these
+  first, and they hold for the combined run of gates 4 and 5 and its
+  comparison run (build-plan-gate5.md 7):
+  - a finished seed keeps only its final save pair; world saves write
+    only records in use; finished lineages get a row only if they
+    lasted, the rest counted; samples are written once, in binary, with
+    CSV on request;
+  - **every second sample is written,** a row each 200 ticks ("we can
+    probably get away with halving the sampling to every 200 ticks").
+    The stage 4 and settling clocks are checked at each sample and
+    start again at one failed check, so sampling itself at 200 would
+    have let those holds come sooner and eased the origin and spread
+    regressions. So the observers still sample every 100 ticks and only
+    the written rows halve ("Agreed"): no measure changes. Chosen over
+    sampling at 200, with or without those clocks kept at 100;
+  - **genomes are kept by the existing rule** ("Remembering extinct
+    lineages is kind of the point, but I would want it limited to
+    genomes that actually had at least 3 generations of descendants.
+    There's no point is saving what is basically just random noise").
+    Asked whether that meant one generation deeper than the rule built
+    on 2026-11-18, a grandchild, he said "Keep existing rule".
+    `observe.keep_generations` stays 3, with `observe.forget` off;
+  - **kept genomes are stored as differences from their parent,** with
+    a whole copy at least every 16 steps along a line ("I like the idea
+    of storing a key frame every 16 changes, I think it is worthwhile
+    to keep in");
+  - **the periodic snapshots of each place are dropped;** the stage 4
+    and end-of-run ones stay ("Agreed").
+- 2026-11-20: **How gate 4's mark is judged in the combined run**
+  (Damian: "Agreed", to Claude's proposal). On the whole combined run;
+  the same measure on the ground gate 5 left alone is reported beside
+  it and brought to him if the two disagree; a run of gate 4's world
+  alone, every gate 5 strength off, is made only if the mark fails.
+- 2026-11-20: **Programs' calls are counted by kind** (Damian: "Yes,
+  add it"). From the combined run of gates 4 and 5, and so its
+  comparison run, each written sample carries the world's totals of the
+  calls programs' threads make, by kind, all 16; SENDs to a port other
+  than 0; and the calls that succeed, by kind, if that is cheap. The
+  parent session traced 2,100 of `runs/open-2`'s kept genomes, 100 for
+  each million ticks:
+  - from tick 1,000,000 on, 96 to 98% call SPAWN and 94 to 97% ALLOC;
+  - SETHANDLER fell from 39% in ticks 1 to 5 million to 16%, and SEND
+    from 24% to about 10%, all of it to port 0 but 3 genomes';
+  - every other call (SENSE, FREE, PROTECT, DREAD, DWRITE, RECV, PING,
+    SLEEP, SETCLOCK, SETCORE) sat at 1 to 6%, what random bytes give,
+    and none rose; kinds of call a genome fell from 2.9 to 2.4.
+
+  Its reading: one of those calls rising above about 5% in the combined
+  run and not in the comparison run would be a direct sign that gates 4
+  and 5 gave programs something worth sensing or keeping. The counts
+  are reported. Whether any is judged is Damian's to decide, and he
+  hasn't been asked.
+- 2026-11-20: **Gate 4's numbers chosen, and its mark changed before
+  any judged run** (Damian, by way of the map-design session; the
+  detail is in build-plan-gate4.md 7 and 11, and this entry is what
+  gate 5's plan takes from it).
+  - **The numbers:** the set that follows from 7's own rules with
+    nothing tuned ("rules only stays closer to my original vision"):
+    heatsinks 0.98 and 0.124 W a degree, the cores' heat capacities
+    19.6 and 2.48 J a degree, sources 100 to 800 W, links 2.5
+    milliohms; the sources' stiffness unchanged. Gate 5's equivalence
+    test compares with `runs/gate4-reference-d`, made at them;
+    `runs/gate4-reference`, at the placeholders, is kept as it was.
+    Gate 4's pilot is running beside `runs/open-2` at them.
+  - **Why the mark changed,** plainly: in the one seed with life under
+    gate 4's physics (1.6 million ticks, under numbers not then
+    chosen), the place the replicators filled had no heat trips before
+    them and lost 42 to 50% of its core time to trips after. So hot
+    windows started with 334 programs and fair ones with 3.6: the
+    first wording was failed by a factor of 90, the wrong way round. A
+    crowd heats its own place and sags its own source, so ground named
+    by what happened to it follows the load. Ground with nothing
+    living on it was never hot.
+  - **The naming:** ground is named by what a full place gets there,
+    with every core of that place kept busy and nothing else living,
+    worked from the seed and its sources, and again as sources open
+    and end. Hot is over a quarter of its core time lost to heat
+    trips; dim is over a quarter lost to cut-outs, or its reset
+    region's memory off over a quarter of the time; fair otherwise. A
+    crowd can no longer change the name of its own ground.
+  - **The direction:** the mark is met if fair and hot ground differ
+    by at least a factor of two in the programs their place-windows
+    start with, whichever way, and fair and dim ground likewise; both
+    must hold, and each direction is reported ("Either direction",
+    asked which of two wordings). The rest stands: the seeds that
+    reach stage 4, lax places, at least 100 place-windows of each kind
+    from at least 5 seeds, and the regressions.
+  - **It is an easier test than the first.** The mark as first worded
+    and named (ground by what happened to the place in the window;
+    fair at least twice hot and twice dim) is reported beside it and
+    not judged, as is the reading on the ground gate 5 left alone.
+  - **The classes** are worked after the run by a tool, a class for
+    each place every 2,000,000 ticks, from the seed.
+  - **Not settled:** under gate 5 a place changes over a run, so
+    whether its class is worked on the place as built or as it stands
+    at that tick. Claude's lean, in build-plan-gate5.md step 15 and
+    not put to Damian: as built, on the first map, with only what is
+    fixed before the run at that tick (the sources' schedules and the
+    straits' partings); wear, failures and patches out; a respawned
+    place's later windows left out and counted.
+- 2026-11-20: **The index that finds a genome's group isn't saved**
+  (Damian: "Yes, drop it"). It was over half of a long seed's test
+  save (3.3 GB of gate 3's seed 2's 6.0 GB), and is built again from
+  the kept genomes when a seed is carried on. No measure changes.
+- 2026-11-20: **Gate 5's numbers that waited on gate 4, agreed**
+  (Damian: "Agree as leaned"). Gate 4's pilot ran (`runs/gate4-pilot`,
+  seeds 1 to 10 to tick 2,000,000 at its agreed numbers), and the rows
+  of build-plan-gate5.md 7 marked for it were worked again from the
+  pilot and from gate 4's measuring tool. The temperatures and draws
+  are measured; the lifetimes are those put through the wear rule by
+  hand, since wear isn't built; the link currents are estimates.
+  - **Changed: the links' reference current is 30 A,** the draw gate
+    4's own link row is worked at, where the row had "the draw of an
+    average place". It was written when a full place drew 23 W;
+    measured, one draws 45 W and the sources are twice the size, so at
+    15 A every link would have worn four times as fast as meant.
+    Chosen over the pilot's own mean draw, 14.5 A.
+  - **Changed: a strike is 20 V behind about 3 mΩ,** by the row's own
+    rule (ten times a large source's rated current), a large source
+    now being 500 to 800 W.
+  - **Left as it was: device endurance, 200 million ticks.** It does
+    what its row asks at both ends (an idle place's devices last about
+    600 million ticks, hot ground's cores 4 to 9 million). The
+    measurements add that on fair ground a full place of 8 cores wears
+    out its E cores in about 19 million ticks and its P cores in about
+    62 million, since an E core at 1,000 mV rests as hot as a P core
+    at 1,100. Left so, because worn ground late in a run is what the
+    check on old, worn places reads. Chosen over 400 million.
+  - **Stand:** wear's reference (45 °C, a doubling per 10 °C), the
+    threshold's rise (50 mV) and the cascade window (10 ticks).
+  - **Disk blocks stand at 10,000 writes,** though not worked as the
+    row said: no record counts DWRITEs. Gate 3 had about 80 boots a
+    place over a run. Checked at gate 5's pilot from the calls counted
+    by kind.
+  - Still open: how a place's ground class is worked in the combined
+    run.
+- 2026-11-20: **A place's ground class is worked on the place as
+  built** (Damian: "Yes, as built"; left open in the two entries
+  above). In the combined run a place changes as it goes: it wears, its
+  devices fail and are replaced, straits part, and it may respawn. Its
+  class, for gate 4's mark, is worked on the first map with each device
+  as dealt and unworn, and with only what is fixed before the run at
+  that tick: the sources' schedules and the straits' partings, which
+  cut power for 2 to 20 million ticks.
+  - Left out: wear and failures, which come from load, so that naming
+    by them would let a crowd change its own ground's name again, the
+    thing the new naming was made to stop; and a finished seed keeps
+    no saves to read them from. Patches too: they are shorter than a
+    window.
+  - A replaced device keeps the values its place was dealt, so it
+    changes nothing.
+  - A respawned place lands at a new point, and when it moves comes
+    from the run. Its windows from then on are left out of the mark
+    and counted; if a seed has more than a few, the classing is worked
+    again with the respawns applied before the mark is read.
+  - Chosen over the place as it stands at that tick, worn and failed.
+  - It asks the classing tool for the straits' partings at the tick.
+- 2026-11-20: **A message lifetime of 0 reroutes nothing** (Damian,
+  asked whether to keep "message lifetime 0 means no rerouting at all"
+  as built: "Yes, keep it"). Gap 8, agreed earlier that day, says a
+  message whose next hop is failed or dark moves to a new route if
+  there is one, and that a lifetime of 0 gives gate 3's drops exactly.
+  The two pull apart at 0: gate 3 dropped a message for a dark place
+  even when another way existed.
+  - **What holds:** routes are worked out once a tick, at the
+    barrier's end, so a blocked message can reroute at the next
+    barrier at the soonest. A lifetime of 0 leaves it none, and it is
+    dropped where gate 3 dropped it. From a lifetime of 1 a blocked
+    message waits and reroutes.
+  - **Why:** it keeps gate 3's world exactly at a lifetime of 0, which
+    the gate 4 equivalence test checks to the byte, and 11.5 already
+    called gate 3's rule "11.6's lifetime of 0".
+  - It touches only worlds run at 0: the equivalence test and the
+    regressions. The judged run's lifetime is 1,000 ticks.
+  - Chosen over rerouting at a lifetime of 0 too, which would have
+    broken the equivalence with gate 4's world.
+  - In `design.md` 11.6, and `build-plan-gate5.md` gap 8 and 11, step 5.
+- 2026-11-21: **A place's incarnation is read from the log of
+  respawns, not held in each record** (Damian: "Yes, log only"). Gap 7,
+  agreed on 2026-11-20, said a place's records carry its incarnation.
+  The build of respawning (step 6) left it out, so that no record
+  changes size, and kept in the world the incarnation and the tick of
+  each place's first respawn, which is what gate 4's mark needs to
+  leave a respawned place's later windows out.
+  - **What holds now:** every respawn is logged as a fact, as 13.1
+    already listed, with its tick, its place, its new incarnation and
+    its new point. A record's incarnation is the count of its place's
+    respawns up to its tick. Step 11 builds the log, whether or not
+    the pilot shows a respawn.
+  - **Why:** nothing is lost by reading it from the log, and the
+    storage changes of 2026-11-20 were made to shrink what is written.
+  - Chosen over a field in every record, and over the build's first
+    offer, to add it only if the runs showed respawns.
+  - In `design.md` 13.1 and 7.8, and `build-plan-gate5.md` gap 7 and
+    step 11.

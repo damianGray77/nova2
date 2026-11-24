@@ -34,3 +34,12 @@ CMakeSettings.json
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# The viewer test writes its render beside wherever it runs
+view_gate1_actual.png
+view_gate2_actual.png
+
+# Tests run from the source tree leave their outputs where they run
+view_run/
+test_straits_joinings.obs
+test_world_stream.snap
