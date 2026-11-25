@@ -134,6 +134,8 @@ void Memory::serialize(Archive& ar) {
         serialize_compact(ar);
     else
         serialize_full(ar);
+    if (ar.loading())
+        resum(); // the bitmaps' summaries, never saved (pass 13)
 }
 
 // What is in use, and no more (snapshot version 5). The bytes go whole:

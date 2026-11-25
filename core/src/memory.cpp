@@ -127,6 +127,7 @@ bool Memory::init(const MemorySpec& s, TextBuf* why) {
     free_bits_.resize(words_);
     open_bits_.resize(0);
     open_bits_.resize(static_cast<usize>(words_) * classes_.size() * 3);
+    resum(); // sized, and clear, before the first set_free
     free_bytes_ = 0;
     dev_free_.resize(0);
     dev_free_.resize(s.device_count);
@@ -178,11 +179,20 @@ u32 Memory::class_of(u32 size) const {
 
 bool Memory::free_bit(u32 p) const { return (free_bits_[p >> 6] >> (p & 63)) & 1; }
 
+// A word's summary bit (free_sum_, open_sum_) follows the word.
+static void sum_follows(u64* sum, u32 word, u64 w) {
+    if (w)
+        sum[word >> 6] |= 1ull << (word & 63);
+    else
+        sum[word >> 6] &= ~(1ull << (word & 63));
+}
+
 void Memory::set_free(u32 p, bool on) {
     if (on)
         free_bits_[p >> 6] |= 1ull << (p & 63);
     else
         free_bits_[p >> 6] &= ~(1ull << (p & 63));
+    sum_follows(free_sum_.data(), p >> 6, free_bits_[p >> 6]);
 }
 
 bool Memory::open_bit(u32 index, u32 p) const {
@@ -195,37 +205,65 @@ void Memory::set_open(u32 index, u32 p, bool on) {
         w |= 1ull << (p & 63);
     else
         w &= ~(1ull << (p & 63));
+    sum_follows(open_sum_.data() + static_cast<usize>(index) * sum_words_, p >> 6, w);
 }
 
-// The lowest page in [lo, hi) whose bit is set in the bitmap at `bits`, or hi.
-static u32 first_set(const u64* bits, u32 lo, u32 hi) {
-    u32 p = lo;
-    while (p < hi) {
-        u64 w = bits[p >> 6] >> (p & 63);
-        if (w) {
-            unsigned long i;
-            _BitScanForward64(&i, w);
-            const u32 found = p + static_cast<u32>(i);
+void Memory::resum() {
+    sum_words_ = (words_ + 63) / 64;
+    const usize maps = words_ ? open_bits_.size() / words_ : 0;
+    free_sum_.resize(0);
+    free_sum_.resize(sum_words_);
+    open_sum_.resize(0);
+    open_sum_.resize(maps * sum_words_);
+    for (u32 k = 0; k < words_; ++k)
+        sum_follows(free_sum_.data(), k, free_bits_[k]);
+    for (usize i = 0; i < open_bits_.size(); ++i)
+        sum_follows(open_sum_.data() + i / words_ * sum_words_, static_cast<u32>(i % words_), open_bits_[i]);
+}
+
+// The lowest page in [lo, hi) whose bit is set in the bitmap at `bits`, or
+// hi. Past lo's own word, the words with a bit set are found from the
+// bitmap's summary `sum`, a bit a word (pass 13; until then, word by word).
+static u32 first_set(const u64* bits, const u64* sum, u32 lo, u32 hi) {
+    if (lo >= hi)
+        return hi;
+    u64 w = bits[lo >> 6] >> (lo & 63);
+    unsigned long i;
+    if (w) {
+        _BitScanForward64(&i, w);
+        const u32 found = lo + static_cast<u32>(i);
+        return found < hi ? found : hi;
+    }
+    const u32 end = (hi + 63) >> 6; // the words that begin below hi
+    for (u32 k = (lo >> 6) + 1; k < end; k = (k | 63) + 1) {
+        const u64 s = sum[k >> 6] >> (k & 63);
+        if (s) {
+            _BitScanForward64(&i, s);
+            k += static_cast<u32>(i);
+            if (k >= end)
+                return hi;
+            _BitScanForward64(&i, bits[k]);
+            const u32 found = k * 64 + static_cast<u32>(i);
             return found < hi ? found : hi;
         }
-        p = (p | 63) + 1;
     }
     return hi;
 }
 
 u32 Memory::find_open(u32 index, u32 lo, u32 hi) const {
-    return first_set(open_bits_.data() + static_cast<usize>(index) * words_, lo, hi);
+    return first_set(open_bits_.data() + static_cast<usize>(index) * words_,
+                     open_sum_.data() + static_cast<usize>(index) * sum_words_, lo, hi);
 }
 
 u32 Memory::find_free_run(u32 lo, u32 hi, u32 count) const {
-    u32 p = first_set(free_bits_.data(), lo, hi);
+    u32 p = first_set(free_bits_.data(), free_sum_.data(), lo, hi);
     while (p + count <= hi) {
         u32 n = 1;
         while (n < count && free_bit(p + n))
             ++n;
         if (n == count)
             return p;
-        p = first_set(free_bits_.data(), p + n + 1, hi);
+        p = first_set(free_bits_.data(), free_sum_.data(), p + n + 1, hi);
     }
     return hi;
 }
@@ -328,7 +366,7 @@ bool Memory::room_on(u32 size, Perm perm, u32 device) const {
     const MemDevice& dv = devices_[device];
     if (size <= page_size_)
         return find_open(open_index(class_of(size), perm), dv.first_page, dv.end_page) != dv.end_page ||
-               first_set(free_bits_.data(), dv.first_page, dv.end_page) != dv.end_page;
+               first_set(free_bits_.data(), free_sum_.data(), dv.first_page, dv.end_page) != dv.end_page;
     return find_free_run(dv.first_page, dv.end_page, (size + page_size_ - 1) >> page_shift_) != dv.end_page;
 }
 
@@ -344,7 +382,7 @@ u32 Memory::alloc_on(u32 holder, u32 size, Perm perm, u32 device) {
         const u32 oi = open_index(c, perm);
         u32 p = find_open(oi, dv.first_page, dv.end_page);
         if (p == dv.end_page) {
-            p = first_set(free_bits_.data(), dv.first_page, dv.end_page);
+            p = first_set(free_bits_.data(), free_sum_.data(), dv.first_page, dv.end_page);
             if (p == dv.end_page)
                 return 0;
             Page& pg = pages_[p];
@@ -687,6 +725,22 @@ void Memory::window_end() {
 }
 
 bool Memory::check(TextBuf* why) const {
+    // The summaries (pass 13): a word's bit set if and only if the word has one.
+    if (sum_words_ != (words_ + 63) / 64 || free_sum_.size() != sum_words_ ||
+        open_sum_.size() != (words_ ? open_bits_.size() / words_ : 0) * sum_words_) {
+        say(why, "memory check: the bitmaps' summaries are the wrong size");
+        return false;
+    }
+    for (usize i = 0; i < free_bits_.size() + open_bits_.size(); ++i) {
+        const bool open = i >= free_bits_.size();
+        const usize k = open ? i - free_bits_.size() : i;
+        const u64* sum = open ? open_sum_.data() + k / words_ * sum_words_ : free_sum_.data();
+        const u32 word = static_cast<u32>(k % words_);
+        if (((sum[word >> 6] >> (word & 63)) & 1) != ((open ? open_bits_[k] : free_bits_[k]) != 0 ? 1u : 0u)) {
+            say(why, "memory check: a summary bit disagrees with bitmap word ", word);
+            return false;
+        }
+    }
     const u32 npages = page_count();
     u64 free_bytes = 0;
     u64 dev_free[kMaxMemDevices] = {};

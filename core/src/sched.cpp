@@ -88,10 +88,16 @@ void Scheduler::begin_tick() {
     // at a time. Most of a late world's threads do wait, so it keeps the
     // first tick each has anything due as well (Os::due), and a thread's
     // record is read only at that tick or after: what's below would find
-    // nothing to do for it before.
+    // nothing to do for it before. And the OS keeps each group's least due
+    // (Os::due_min), so a group with none due yet isn't read (pass 13).
     const u8* const attention = os_->attention();
     const u64* const due = os_->due();
+    const u64* const due_min = os_->due_min();
     for (u32 t = 0, top = os_->thread_top(); t < top; ++t) {
+        if ((t & (Os::kDueGroup - 1)) == 0 && due_min[t >> Os::kDueGroupShift] > now) {
+            t += Os::kDueGroup - 1;
+            continue;
+        }
         if ((t & 7) == 0 && t + 8 <= top) {
             u64 eight;
             memcpy(&eight, attention + t, 8);

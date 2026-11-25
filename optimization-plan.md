@@ -1734,3 +1734,294 @@ unchanged.
   5 s and the flaky places' flips (run 1's longest tasks); the path
   hash's chain (about 14%) has no exact cut found; the observers' late
   cost still not measured.
+
+### Pass 13: a full world profiled, only (2026-11-24)
+
+On Damian's word ("Yes, profile it"), after runs/open-5 (open-4 with seven
+times the sources and cooling, so its places fill) fell from about 475
+ticks a second to about 300, with spells at 20 to 30. Nothing was changed.
+Passes 9 to 12 were measured on open-3's nearly empty world; a full one
+spends its time elsewhere. open-2, as full, ran 175 to 270 a second on its
+old build.
+
+- **How:** open-5's save at tick 1,826,900 copied to a scratch folder and
+  carried on with `nova2 resume` (the world alone, no observers) on
+  `build-g5i`; sampled on `build-profile`, rebuilt from the tree at
+  8c55e12. The world there: 64,000 to 83,000 programs, 1.7 to 2.0 million
+  threads, 232,000 instructions a tick (99,000 of them idle runs), 1,893
+  SPAWNs a tick starting 1,554 threads and 44.5 programs, 600 ALLOCs.
+  (open-2 at 21 million ticks: 5.1 million threads, 1,759 threads started
+  a tick, 344,000 instructions.)
+- **Timed** (2,000 ticks, the same hash b118ac48e90a0e2a each, open-5
+  running beside it):
+
+  | Host threads | 24 | 8 | 4 | 2 | 1 |
+  |---|---|---|---|---|---|
+  | The run | 4.76 s (420 a second) | 5.90 s | 9.11 s | 16.39 s | 34.42 s |
+
+  So a tick is about 17 ms of processor time, 24 threads buy 7.2 times,
+  and the world alone gives the live run's rate: the observers aren't the
+  main cost. A place is one task, so a tick waits for its heaviest place;
+  on 24 threads the workers wait 83% of the time.
+- **Sampled** (30,000 ticks, 12 host threads, 92.8 s; shares of the busy
+  samples):
+  - `Scheduler::tick` 45%: `run_quantum` 38% (`run_thread` 22%, `Os::call`
+    17% with `Os::spawn` 8.7%, `Memory::alloc_on` 5.5% for the new stacks,
+    `new_thread` 5%, `end_thread` 3.7%), `begin_tick` 4%;
+  - `Place::end_failed_states` 18% (`failed_marked`, `end_failed_marked`,
+    `end_failed_among`);
+  - the shared fades (`World::chunk_one`) about 20%;
+  - the interpreter itself (`step_one`, `run_steps`) about 5%; `mix64` 5%;
+  - alone on the main thread: `World::network_step` 14.5% of the ticking's
+    wall time (`Os::deliver`, `mix64`, `bytes_held`), `fade_spread` 9.6%.
+- **What grows with a place's or a program's threads:**
+  1. `Os::stack_of` (os.cpp:819) walks every thread of a program. FREE
+     calls it for any stack-sized allocation of the caller's (os.cpp:1216),
+     SPAWN for any target that isn't the caller's own (os.cpp:892).
+  2. `Os::spawn` (os.cpp:889) walks every thread of the caller before
+     that, reading each one's saved IP from its stack (`caller_ip`,
+     `runs_on`), unless the target holds the caller's IP: twice the
+     threads for each program born.
+  3. `Scheduler::begin_tick` (sched.cpp:94 to 103) reads `attention` and
+     `due` for every thread of the place each tick.
+  4. `Place::end_failed_marked` visits every thread of a place with failed
+     bytes each tick.
+  5. `Os::front` drains stale ready entries; `Os::pick_by_bytes` sums every
+     program's allocations twice.
+- **The spells are item 1.** The live run's window read 30 ticks a second
+  at tick 2,343,566. The copy carried on to tick 2,342,000 (`--save`) and
+  sampled for 5,000 ticks took 356 s, 14 a second: `Os::stack_of` under
+  `Os::call` (FREE) was 19,897 of about 22,700 busy samples, 88%, one host
+  thread busy and the rest waiting. A program with very many threads
+  freeing stack-sized allocations walks them all each call.
+- **Next, if wanted, in order:** `stack_of` without the walk (what a stack
+  is known when a thread starts and ends); SPAWN's walk; the failed
+  states by the blocks the threads' saved states lie in; `begin_tick` by
+  what is due; the stacks' allocation; delivery off the main thread. Each
+  exact, and with the world's and the test's saves still read, so open-5
+  can be carried on by the new build.
+
+### Pass 13: what grows with the threads, cut (2026-11-24)
+
+On Damian's word ("Yes, fix them"): the profile's five, on its tree
+(8c55e12). `build-g5j` has 1 and 2, `build-g5k` all that held. The
+world is the same byte for byte; nothing new is saved, and neither the
+world's save nor the test's changes format, so open-5 can be carried on
+by either build. Every index added is worked out again when a save is
+loaded (`Os::reindex`, `Memory::resum`) and checked by the invariant
+checks (`Os::check`, `Memory::check`).
+
+- **Where the time went** (open-5's save at tick 1,826,900, 2,000
+  ticks on 24 host threads, open-5 running beside it; a counting build
+  and timing copies of the tree and of the new code, each place's parts
+  and the network step's timed by the time-stamp counter, taken in
+  turns):
+  - **The spells** were item 1: a program with very many threads
+    freeing stack-sized allocations walked them all each FREE.
+  - **The network step,** alone on the main thread, was 546 to 621 µs
+    of a tick of about 2,900: delivery 294 to 314 (each message walked
+    every thread record of its place twice, about 5 MB), the killer 78
+    to 95 (every program record twice, each live one's allocations
+    summed twice), the network's own step about 60, and the rest (the
+    SENDs posted, the current, the SENSEs answered, the routes planned)
+    100 to 140.
+  - **`Memory::first_set`** read 97 words a call on the mean (about
+    11,000 calls a tick), word by word to the next free page or open
+    slab.
+  - **`begin_tick`** read about 1.9 million thread records a tick
+    across the places, for about 21,000 with an attention bit and 580
+    due (the counting build's counts, from 1,600 ticks).
+- **What changed:**
+  1. **`Os::stack_of` without the walk** (`build-g5j`). `Os::stacks_`
+     maps a program's holder and a stack's base to how many of its live
+     threads have their stack there: one, but for a stack freed under
+     its live thread and handed out again, as it can be with
+     `os.stack_held` off. `new_thread` and `end_thread` keep it.
+  2. **SPAWN's walk** (`build-g5j`). `stack_of`, now cheap, is asked
+     before the walk (each is a pure test, so their order can change),
+     and in the walk a thread whose saved IP lies in none of the
+     target's pages is passed by without `runs_on`, which can only be
+     true there. The walk still visits each of the caller's threads:
+     their saved IPs are memory bytes any write can change, and I found
+     no exact index of them.
+  3. **The failed states by the OS's lists by block.** The OS keeps,
+     for each 64-byte block of memory (the marks' blocks), the threads
+     whose stack starts in it (`Os::first_in_block`, `next_in_block`).
+     A thread's saved registers start at its stack's base and a
+     handler's frame at most `os.stack` less `kHandlerFrameBytes` past
+     it (`enter_handler`), so a state starting in a marked block belongs
+     to a thread whose stack starts there or at most `reach` blocks
+     before. `end_failed_marked` gathers those threads in a bitmap and
+     takes them in record order with the same test as before: the same
+     threads end, in the same order, with the same cause. A list read
+     is a random one where the walk of every thread reads in order, so
+     the lists are used only with more than `Place::lists_pay` (12)
+     threads for each list the failed bytes may read; otherwise every
+     thread is walked as before. Of 4, 12 and 32, 12 measured best.
+  4. **`begin_tick` by groups.** The OS keeps the least `due` of each 64
+     thread records (`Os::due_min`), lowered at once and, when the
+     least itself goes up, worked out again from the 64. `begin_tick`
+     passes over a group whose least is still to come: `due` is exactly
+     the tick its tests of a record would first pass.
+  5. **Item 5:**
+     - **`Memory::first_set`** finds the next word with a bit set from
+       a summary, a bit for each word of the free-page bitmap and of
+       each open-slab bitmap (`free_sum_`, `open_sum_`), so 64 empty
+       words are passed at once. `alloc_on`, `room_on` and the span
+       search all use it.
+     - **`Os::deliver`** finds a port's RECV waiters and data handlers
+       from keys kept by `note` (1 + the port a thread waits on, 1 +
+       its data handler's port, and each port's counts): every change
+       of what deliver tested (a thread's state, `recv_port`, its data
+       handler, `data_port`) already comes through `note`. It reads the
+       keys up to the last of the port's threads, and picks as before:
+       the longest waiting, ties to the lowest record. A port past
+       `os.ports` (sent from a place with more) is looked for record by
+       record as before.
+     - **The killer's draw** (`Os::pick_by_bytes`) reads up to the
+       highest live program record (`program_top_`, kept as programs
+       start and end) and sums each program's bytes once.
+     - **`Os::front`**: no cut. Each stale entry is read once and
+       dropped, so the work is already the entries queued.
+     - **The network step** stays on the main thread: with delivery
+       cut it is 190 to 226 µs a tick.
+- **The saves:** what a test's save holds that another build must
+  match, unchanged here: `sizeof(SeedResult)`; the element size of
+  every table written raw (the observers' tables and their HashMaps',
+  the loop's `LineageClock` tables); the fixed arrays sized by enums
+  (`DeathCause`, `BirthCause`); the counters' list and order, which
+  `load_counters` must use up exactly; the observer's settings words;
+  and the closing hash over every byte. No counter was added.
+- **What it costs:** per place, the lists by block 4 bytes for each
+  64-byte block and each thread record, the ports' keys 8 bytes a
+  record, the groups' least 8 bytes for 64 records, the summaries a bit
+  for each bitmap word: about 2 MB a place of 8 MB. Carrying open-3's
+  late save on 200 ticks peaked at 9,878 MB against `build-g5j`'s 9,665
+  (twice each). Each is placed last in its class, so no other member
+  moves.
+- **Timed** (the timing copies taken in turns, three rounds; µs a
+  tick; the places' parts summed over the places, as thread time; with
+  open-5 beside them a round's numbers vary by up to a tenth):
+
+  | | `build-g5j`'s | 3 to 5 | without 4 | without the summaries |
+  |---|---|---|---|---|
+  | the places' run (execution) | 12,210 to 12,854 | 11,405 to 11,544 | 11,810 to 12,091 | 11,761 to 11,940 |
+  | `end_failed_states` | 5,274 to 5,447 | 4,128 to 4,155 | | |
+  | the network step | 570 to 588 | 201 to 218 | | |
+  | its delivery | 304 to 314 | 3 | | |
+  | its killer | 83 to 95 | 54 to 68 | | |
+
+  Those had `lists_pay` 4. Three more rounds, `end_failed_states` by
+  `lists_pay`: 3,904 to 4,124 with 4, 3,831 to 4,243 with 12 (`build-
+  g5k`'s), 4,230 to 4,317 with 32, against `build-g5j`'s 5,138 to 5,345;
+  with the lists always (the first rounds), 4,209 to 4,322. Place by
+  place, place 13 (50,424 threads) went from 153 µs a tick to 101, and
+  place 94 (31,936 threads, heavy with flips) was 170 with 4 and 154
+  with 12, against 151; with 4, 12 places were more than 1 µs a tick
+  slower than on `build-g5j`, with 12, 8, none by more than 4 (places
+  of 7,000 to 32,000 threads, up to 11% of their time there).
+- **The small worlds,** `build-g5i`, `-g5j` and `-g5k` taking turns,
+  three rounds, 24 host threads: the busy world (2 seeds of 60,000
+  ticks) 168 to 174 and 157 to 164 µs a tick on each (but `build-g5i`'s
+  first round, 147 and 136); open-3 with its faults made frequent,
+  10,000 ticks, 3,201 to 3,293 on `build-g5i`, 3,183 to 3,269 on
+  `build-g5j`, 3,238 to 3,284 on `build-g5k`: level, within the rounds'
+  spread. (`build-g5j`'s check had the busy world at 177 µs against
+  `build-g5i`'s 142, one run each while it compiled.)
+- **Checked.**
+  - **Tests:**
+    - **`test_stack_lookup`** (os): 12,000 random calls of a program
+      with up to 40 threads, their saved IPs set anywhere, with
+      `os.stack_held` on and off: each SPAWN's choice and FREE's answer
+      held against the walks they replaced, written out again in the
+      test, and the OS's check every 50 steps. It fails on two wrong
+      versions.
+    - **`test_deliver_keys`** (os): random RECVs and data handlers on
+      four ports, threads ended and started, and messages to every port
+      and past them: each delivery held against the old walk (the one
+      that took it, no one else woken, the interrupts raised), with the
+      OS's check every 50 steps. Stopping at the port's first waiter
+      fails it.
+    - **`test_killer_draw`** (os): programs placed by hand and ended
+      at random, each holding what it was given; every step's draw held
+      against the old one.
+    - **`test_rare_room`** (memory): a memory of 384 words a bitmap
+      filled, a page in 300 freed, then 6,000 allocations and frees of
+      pages, 8-byte slots and spans: each pick the lowest found by hand,
+      page by page, each miss a miss, and the check every 500.
+    - **`test_fails_blocks`** (fails), on top of pass 12's: with 100-
+      and 200-byte stacks, so frames start blocks past their stack's
+      base; with bytes failed by the frames alone (with `reach` 0 it
+      fails); through the lists always and through the walk.
+    - **`test_due_groups`** (sched): 200 threads sleeping, waiting on
+      timers and handlers, grouped by kind, one ending and another
+      starting every 9 ticks, the OS's check every tick: 645 groups
+      passed over and 12,187 threads woken or timed.
+  - **The suites:** 50 of 50, twice, on each build, the determinism
+    suites among them. Gate 4's equivalence test is byte for byte on
+    both.
+  - **Against the build before, byte for byte** (`build-g5j` against
+    `build-g5i`, then `build-g5k` against `build-g5j`), each pair on
+    the same host threads, as in passes 10 to 12:
+    - **open-3's world** from tick 0 to 20,000 on 1, 2, 8 and 24 host
+      threads: 16 of 17 files the same each time, the world's save
+      among them, the test's save the one apart (pass 9); the records,
+      windows and genome dumps the same from one thread count to
+      another, and every report's instructions executed,
+      7,808,712,071. The reports the same but for their timings.
+    - **The same with its faults made frequent,** to tick 10,000, on
+      24: the same, and 634, then 718, of the test save's 53 million
+      bytes differ.
+    - **The busy world,** 2 seeds of 60,000 ticks with its 25
+      snapshots: all 55 files.
+    - **The late world:** open-3's save carried on 2,000 ticks on 24
+      threads: its 931 MB save and its hash, 25132543da65ce55; and
+      `build-g5k` on 1 thread, the same hash.
+  - **open-5's saves** (the hashes this pass was given): the save at
+    tick 1,826,900 carried on 2,000 ticks gave b118ac48e90a0e2a on
+    `build-g5i`, `build-g5j` (24 threads and 1) and every timing and
+    scratch build of 3 to 5 (24 threads; 1 with `lists_pay` 4); the
+    spell's save at tick 2,342,000, 5,000 ticks, 2b113a49cf763361 on
+    `build-g5j` and on 3 to 5 with `lists_pay` 4. `build-g5k` gave
+    both hashes on 24 threads and on 1 (each world alone, open-5
+    beside it).
+  - **The builds:** `build-g5j\bin\nova2.exe`, md5 52a8c749...;
+    `build-g5k\bin\nova2.exe`, md5 3e3ebf63....
+- **Measured** (by the session that asked for the pass, apart from the
+  build session's own figures above; `build-g5i`, `-g5j` and `-g5k`
+  taking turns, three rounds, 24 host threads, each world alone but
+  for open-5, which ran beside every one on `build-g5j`, so a round's
+  numbers vary by about a tenth; each world started through
+  `build-scratch\world-gate.sh`, one at a time; the run's seconds as
+  `nova2 resume` prints them):
+
+  | | `build-g5i` | `build-g5j` | `build-g5k` | |
+  |---|---|---|---|---|
+  | open-5's save at tick 1,826,900 (1.9 million threads), 2,000 ticks | 6.05, 5.57, 6.12 s | 5.86, 5.37, 6.08 s | 4.70, 4.67, 5.06 s | `-g5k` 0.83 of `-g5j`'s time |
+  | the same, open-5 stopped (2026-11-24, one run each) | 4.76 s | 4.88 s | | |
+  | the spell: its save at tick 2,342,000, 5,000 ticks | 426.0 s (one run, open-5 stopped) | 11.14, 11.69, 11.62 s (12.55 s then) | 9.29, 9.40, 9.68 s | 34 times, then 0.82 |
+  | open-5's save at tick 4,623,600 (2.8 million threads), 2,000 ticks, two rounds | | 7.23, 6.99 s | 6.12, 5.95 s | 0.85 |
+  | open-3's late save (tick 7,523,723), 2,000 ticks | | 4.21, 4.24, 3.99 s | 4.22, 4.56, 4.09 s | level |
+
+  - **The hashes** were the ones expected every time: b118ac48e90a0e2a,
+    2b113a49cf763361 and 25132543da65ce55, and 9fc0fa368b52aac4 on both
+    builds for the save at tick 4,623,600.
+  - **Carried on by the next build.** A test's save is read back only
+    by a build that keeps its layout, so each build carried on a save
+    the one before it wrote, beside that one doing the same, 1,000
+    ticks, the records copied to scratch (a carry-on cuts them back to
+    the save's lengths): open-5's save at tick 3,667,900 (written by
+    `build-g5i`) on `-g5i` and `-g5j`, and its save at tick 4,623,600
+    (written by `build-g5j`) on `-g5j` and `-g5k`. Each pair's records,
+    windows and genome dump were the same, 15 of 15 files, and the
+    reports the same but for their timings.
+  - **open-5 itself** went from `build-g5i` to `build-g5j` at tick
+    3,667,900 (2026-11-24, 22:29). On `build-g5i` it had spells of
+    about 20 ticks a second; on `build-g5j`, over its progress lines of
+    ten minutes, 243 to 317 ticks a second with test worlds beside it,
+    and no spell. It has not run on `build-g5k`.
+  - **What the pass did not do:** the places' run itself, where most of
+    a tick's thread time still goes (about 11,400 µs a tick against
+    `end_failed_states`' 4,100, by the timing above),
+    and a place is still one task, so a tick still waits for its
+    heaviest place.

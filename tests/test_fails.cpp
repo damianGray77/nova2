@@ -238,6 +238,13 @@ void test_fails_exact() {
            "bytes just outside them and a running thread's registers didn't\n");
 }
 
+// What test_fails_blocks's place came to (fails_twin).
+struct FailsTwin {
+    u32 bytes = 0, ended = 0, states = 0;
+    u32 frames_on = 0; // handlers' frames starting a block or more past their stack's base
+};
+FailsTwin fails_twin(const char* settings, bool frames_only, u32 lists_pay = 0);
+
 // Done when (optimization-plan.md pass 12): with many threads and more than
 // a few failed bytes, a thread's states are held against the bytes only
 // when one starts in a block their marks reach (place.h), and the same
@@ -250,12 +257,11 @@ void test_fails_exact() {
 //   more from it never does. Then against the first and last bytes of
 //   every block at once. With every byte failed, kNowhere is still in no
 //   marked block, and unmarking leaves every word clear.
-// - In a place: 48 sleepers and 48 sleeping in a handler, with the bytes
-//   just outside their states failed, and for some the first or last byte
-//   of a state, or of its block: through the marks, the same threads end,
-//   in the same order, as through end_failed_among over every thread, and
-//   the worlds' hashes match. Then a byte past memory's end, which the
-//   marks leave to the plain way.
+// - In a place (fails_twin), with 64-byte stacks and, so that a handler's
+//   frame can start blocks past its stack's base (pass 13, the OS's lists
+//   by block), 100- and 200-byte ones. Through the lists always (a place's
+//   lists_pay 0), and with 200-byte stacks through the walk of every
+//   thread too, which so few threads for the bytes take by default.
 void test_fails_blocks() {
     const u32 bytes = 4096, block = 1u << kFailedBlockShift;
     struct State {
@@ -316,14 +322,41 @@ void test_fails_blocks() {
     CHECK(n == 378 && held == 63ull * (4 * kSavedRegsBytes + 2 * kHandlerFrameBytes));
     CHECK(missed == 0 && far_marked == 0 && far > held);
     CHECK(at_edges == n && edge_missed == 0 && !nowhere && clear);
+    const FailsTwin s64 = fails_twin("", false), s100 = fails_twin("os.stack = 100\n", false),
+                    s200 = fails_twin("os.stack = 200\n", false), f100 = fails_twin("os.stack = 100\n", true),
+                    f200 = fails_twin("os.stack = 200\n", true),
+                    walked = fails_twin("os.stack = 200\n", false, 12);
+    CHECK(s64.frames_on == 0 && s100.frames_on > 40 && s200.frames_on > 40);
+    CHECK(walked.ended == s200.ended && walked.states == s200.states && walked.bytes == s200.bytes);
+    printf("  fails: %u states at the edges of %u-byte blocks, each against a failed byte at all %u addresses, "
+           "and every block's first and last bytes: each holding a failed byte starts in a marked block, none a "
+           "block away; in a place, %u failed bytes ended the same %u of 96 threads (%u states) in the same "
+           "order as looking at every thread; with 100- and 200-byte stacks, %u and %u (%u and %u frames a "
+           "block or more past their stack's base), and with bytes failed by the frames alone %u and %u, and through "
+           "the walk %u\n",
+           n, block, bytes, s64.bytes, s64.ended, s64.states, s100.ended, s200.ended, s100.frames_on,
+           s200.frames_on, f100.ended, f200.ended, walked.ended);
+}
 
+// test_fails_blocks's place, with these settings beside the rule's: 48
+// sleepers and 48 sleeping in a handler, the bytes just outside their
+// states failed, and for some the first or last byte of a state or of its
+// block. Through end_failed_marked, the same threads end, in the same
+// order, as through end_failed_among over every thread, and the worlds'
+// hashes match. Then a byte past memory's end, which the marks leave to the
+// plain way.
+FailsTwin fails_twin(const char* settings, bool frames_only, u32 lists_pay) {
+    const u32 block = 1u << kFailedBlockShift;
+    char extra[200];
+    snprintf(extra, sizeof extra, "os.saved_state_fails = true\nmemory.size = 262144\n%s", settings);
+    FailsTwin out;
     World w[2];
     Config cfg[2];
     TextBuf why;
     const u32 kEach = 48;
     u32 t[2 * kEach];
     for (u32 k = 0; k < 2; ++k) {
-        CHECK(build(w[k], cfg[k], "os.saved_state_fails = true\nmemory.size = 262144\n", &why));
+        CHECK(build(w[k], cfg[k], extra, &why));
         Place& p = w[k].place(0);
         for (u32 i = 0; i < kEach; ++i) {
             t[i] = place(p, kSleeper, sizeof kSleeper);
@@ -339,19 +372,24 @@ void test_fails_blocks() {
         const Thread& th = p0.os.thread(t[i]);
         CHECK(th.state == ThreadState::sleeping && !th.core && (i < kEach) != th.in_handler);
         const u32 s = th.stack, f = th.frame;
-        addrs.push(s - 1);
-        addrs.push(s + kSavedRegsBytes);
-        if (i % 5 == 0)
-            addrs.push(s);
-        if (i % 5 == 1)
-            addrs.push(s + kSavedRegsBytes - 1);
-        if (i % 7 == 3)
-            addrs.push(s & ~(block - 1));
-        if (i % 7 == 5)
-            addrs.push(s | (block - 1));
         states += th.in_handler ? 2 : 1;
+        if (!frames_only) {
+            addrs.push(s - 1);
+            addrs.push(s + kSavedRegsBytes);
+            if (i % 5 == 0)
+                addrs.push(s);
+            if (i % 5 == 1)
+                addrs.push(s + kSavedRegsBytes - 1);
+            if (i % 7 == 3)
+                addrs.push(s & ~(block - 1));
+            if (i % 7 == 5)
+                addrs.push(s | (block - 1));
+        }
         if (!th.in_handler)
             continue;
+        if (frames_only && i % 3 == 0)
+            addrs.push(f);
+        out.frames_on += f >> kFailedBlockShift != s >> kFailedBlockShift;
         addrs.push(f - 1);
         addrs.push(f + kHandlerFrameBytes);
         if (i % 5 == 2)
@@ -359,6 +397,7 @@ void test_fails_blocks() {
         if (i % 7 == 6)
             addrs.push((f + kHandlerFrameBytes - 1) | (block - 1));
     }
+    p0.lists_pay = lists_pay;
     p0.os.clear_facts();
     p1.os.clear_facts();
     const bool marked = p0.end_failed_marked(addrs.data(), static_cast<u32>(addrs.size()));
@@ -373,14 +412,15 @@ void test_fails_blocks() {
     p0.end_failed_states(addrs.data(), static_cast<u32>(addrs.size()));
     p1.end_failed_among(addrs.data(), static_cast<u32>(addrs.size()), 0, p1.os.thread_top());
     same = same && p0.failed_threads == ended && p1.failed_threads == ended;
-    CHECK(same && addrs.size() > 300 && ended > 20 && ended + 20 < 2 * kEach);
+    CHECK(same && addrs.size() > (frames_only ? 100u : 300u) && ended > (frames_only ? 10u : 20u) &&
+          ended + 20 < 2 * kEach);
     CHECK_EQ_U64(w[0].hash(), w[1].hash());
-    printf("  fails: %u states at the edges of %u-byte blocks, each against a failed byte at all %u addresses, "
-           "and every block's first and last bytes: each holding a failed byte starts in a marked block, none a "
-           "block away; in a place, %u failed bytes ended the same %llu of %u threads (%u states) in the same "
-           "order as looking at every thread\n",
-           n, block, bytes, static_cast<u32>(addrs.size() - 1), static_cast<unsigned long long>(ended), 2 * kEach,
-           states);
+    TextBuf broken;
+    CHECK(p0.check(&broken) && p1.check(&broken));
+    out.bytes = static_cast<u32>(addrs.size() - 1);
+    out.ended = static_cast<u32>(ended);
+    out.states = states;
+    return out;
 }
 
 // Real flips, one tick at a time, with the rule on and off. 24 sleepers and

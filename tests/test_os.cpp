@@ -7,6 +7,7 @@
 // Hand-placed programs are allowed here (R7): these check mechanics, never
 // origins.
 #include <cstring>
+#include <intrin.h> // _umul128
 
 #include "check.h"
 #include "nova2/os.h"
@@ -636,6 +637,412 @@ void test_stack_held() {
     CHECK(o.sys(0, kFree, sb) == 1 && o.m.alloc_at(sb) == 0 && o.os.thread(o.index_of(b)).stack == sb);
 }
 
+namespace {
+
+// What stack_of and SPAWN's choice of a thread or a gift answered before
+// pass 13, written out again: a walk of the program's threads for each.
+u32 old_ip(const Rig& g, u32 t) {
+    const Thread& th = g.os.thread(t);
+    if (th.core)
+        return g.cores[th.core - 1].x.r.ip;
+    const u8* p = g.m.bytes() + th.stack + 16;
+    return static_cast<u32>(p[0]) | static_cast<u32>(p[1]) << 8 | static_cast<u32>(p[2]) << 16 |
+           static_cast<u32>(p[3]) << 24;
+}
+
+bool old_runs_on(const Rig& g, u32 holder, u32 ip, u32 id) {
+    const u32 at = g.m.alloc_at(ip);
+    if (at == id)
+        return true;
+    if (at && g.m.record(at).holder == holder)
+        return false;
+    const Alloc& a = g.m.record(id);
+    const u32 page = g.m.page_of(ip);
+    return a.size && page >= g.m.page_of(a.base) && page <= g.m.page_of(a.base + a.size - 1);
+}
+
+bool old_stack_of(const Rig& g, u32 holder, u32 id) {
+    if (!id || holder < kFirstProgramHolder)
+        return false;
+    const Alloc& a = g.m.record(id);
+    if (a.holder != holder || a.size != g.s.stack_size)
+        return false;
+    for (u32 t = g.os.program(holder).first_thread; t; t = g.os.thread(t - 1).next)
+        if (g.os.thread(t - 1).stack == a.base)
+            return true;
+    return false;
+}
+
+// 1: a thread, 2: a gift, as spawn_asked_ (0 where SPAWN refuses first).
+// *by_page: a thread only by a page an IP shares with the allocation.
+u32 old_asked(const Rig& g, u32 holder, u32 addr, u32 sys_ip, bool* by_page) {
+    const u32 id = g.m.alloc_at(addr);
+    *by_page = false;
+    if (!id || g.m.record(id).holder != holder || g.m.page(g.m.page_of(addr)).perm == Perm::data)
+        return 0;
+    bool own = old_runs_on(g, holder, sys_ip, id), inside = g.m.alloc_at(sys_ip) == id;
+    for (u32 t = g.os.program(holder).first_thread; t; t = g.os.thread(t - 1).next) {
+        own = own || old_runs_on(g, holder, old_ip(g, t - 1), id);
+        inside = inside || g.m.alloc_at(old_ip(g, t - 1)) == id;
+    }
+    const bool stack = g.s.stack_held && old_stack_of(g, holder, id);
+    *by_page = own && !inside && !stack;
+    return own || stack ? 1 : 2;
+}
+
+u32 draw(u64* x) {
+    *x = *x * 6364136223846793005ull + 1442695040888963407ull;
+    return static_cast<u32>(*x >> 33);
+}
+
+// An address of one of the kinds an IP or a target takes: in one of the
+// program's allocations, in one of their pages (a gap, or someone else's
+// allocation), anywhere in memory, or past it.
+u32 some_address(Rig& g, u32 holder, u64* x) {
+    u32 n = 0, pick = 0;
+    for (u32 id = g.m.first_of(holder); id; id = g.m.record(id).next)
+        ++n;
+    if (n) {
+        pick = draw(x) % n;
+        for (u32 id = g.m.first_of(holder); id; id = g.m.record(id).next)
+            if (pick-- == 0) {
+                pick = id;
+                break;
+            }
+    }
+    const Alloc& a = g.m.record(pick);
+    switch (draw(x) % 5) {
+    case 0:
+    case 1:
+        return n ? a.base + draw(x) % a.extent : draw(x) % g.m.size();
+    case 2:
+        return n ? g.m.page_of(a.base + draw(x) % a.extent) * g.m.page_size() + draw(x) % g.m.page_size() : 0;
+    case 3:
+        return draw(x) % g.m.size();
+    default:
+        return g.m.size() + draw(x) % 4096;
+    }
+}
+
+void set_ip(Rig& g, u32 t, u32 ip) {
+    u8* p = g.m.bytes() + g.os.thread(t).stack + 16;
+    p[0] = static_cast<u8>(ip);
+    p[1] = static_cast<u8>(ip >> 8);
+    p[2] = static_cast<u8>(ip >> 16);
+    p[3] = static_cast<u8>(ip >> 24);
+}
+
+// A program's live threads, by record.
+u32 nth_thread(const Rig& g, u32 holder, u32 k) {
+    u32 t = g.os.program(holder).first_thread;
+    while (k-- && t)
+        t = g.os.thread(t - 1).next;
+    return t ? t - 1 : ~0u;
+}
+
+// The ready queues without their stale entries, as the scheduler's picks
+// leave them: each ready thread taken off and queued again. Here nothing
+// picks, so a queue would fill with the ended threads' entries.
+void requeue(Rig& g) {
+    Array<u32> ready;
+    for (u32 t = g.os.pick(DeviceKind::p_core); t != ~0u; t = g.os.pick(DeviceKind::p_core))
+        ready.push(t);
+    for (u32 i = 0; i < ready.size(); ++i)
+        g.os.make_ready(ready[i]);
+}
+
+struct LookupCount {
+    u32 asked[3] = {}; // by old_asked
+    u32 by_page = 0, frees = 0, freed = 0, shared = 0, checks = 0;
+};
+
+// Random calls of one program, its threads' IPs set anywhere between them,
+// each SPAWN and FREE held against the walks above, and the OS's own check
+// (stacks_ against the records) every 50 steps.
+void stack_lookup_run(const OsSettings* with, LookupCount* n) {
+    Rig g(256, false, 16384, DeviceKind::e_core, with);
+    const u8 loop[2] = {encode(kJmp, kImm), 0};
+    const u32 code = g.place(loop, 2, 0, 2, 64);
+    const u32 me = g.cores[0].x.holder;
+    for (u32 i = 0; i < 24; ++i)
+        CHECK(g.sys(0, kSpawn, code + i % 2, i) != 0);
+    u64 x = with ? 0x5EED0002ull : 0x5EED0001ull;
+    const u32 sizes[7] = {g.s.stack_size, g.s.stack_size, 8, 30, 120, 300, 600};
+    TextBuf why;
+    for (u32 step = 0; step < 12000; ++step) {
+        Regs& r = g.cores[0].x.r;
+        const u32 threads = g.os.program(me).threads;
+        requeue(g);
+        switch (draw(&x) % 9) {
+        case 0:
+            g.sys(0, kAlloc, sizes[draw(&x) % 7], 2, 0);
+            break;
+        case 1:
+        case 2: { // a thread off its core, its saved IP somewhere
+            const u32 t = nth_thread(g, me, draw(&x) % threads);
+            if (t != ~0u && !g.os.thread(t).core)
+                set_ip(g, t, some_address(g, me, &x));
+            break;
+        }
+        case 3:
+            r.ip = draw(&x) % 4 ? code : some_address(g, me, &x);
+            break;
+        case 4:
+        case 5: {
+            const u32 at = some_address(g, me, &x);
+            bool by_page = false;
+            const u32 want = old_asked(g, me, at, r.ip, &by_page);
+            const u64 t0 = g.os.spawns_thread, p0 = g.os.spawns_program;
+            g.sys(0, kSpawn, at, 0);
+            const u32 got = g.os.spawns_thread > t0 ? 1 : g.os.spawns_program > p0 ? 2 : 0;
+            CHECK(got == want);
+            ++n->asked[want];
+            n->by_page += by_page;
+            break;
+        }
+        case 6: { // FREE of an allocation of a stack's size, a thread's stack or not
+            const u32 at = some_address(g, me, &x);
+            const u32 id = g.m.alloc_at(at);
+            if (!id || g.m.record(id).size != g.s.stack_size)
+                break;
+            const u32 base = g.m.record(id).base;
+            const bool held = g.s.stack_held && old_stack_of(g, me, id);
+            const bool mine = g.m.record(id).holder == me;
+            CHECK(g.sys(0, kFree, base) == (!held && mine ? 1u : 0u));
+            ++n->frees;
+            n->freed += !held && mine;
+            break;
+        }
+        case 7: { // a thread of any program ends, but the one on the core
+            const u32 t = draw(&x) % (g.os.thread_top() ? g.os.thread_top() : 1);
+            if (g.os.thread(t).state != ThreadState::free && !g.os.thread(t).core)
+                g.os.end_thread(t, DeathCause::exit);
+            break;
+        }
+        default:
+            if (threads < 40)
+                g.sys(0, kSpawn, code, 0);
+            break;
+        }
+        if (step % 50 == 0 && why.size() == 0) { // the first break is enough to say
+            CHECK(g.os.check(&why) && g.m.check(&why));
+            ++n->checks;
+        }
+    }
+    // Two live threads with their stack at one base (with os.stack_held off).
+    for (u32 t = 0; t < g.os.thread_top(); ++t)
+        for (u32 u = t + 1; u < g.os.thread_top(); ++u)
+            n->shared += g.os.thread(t).state != ThreadState::free && g.os.thread(u).state != ThreadState::free &&
+                         g.os.thread(t).stack == g.os.thread(u).stack;
+    CHECK(g.os.check(&why));
+    if (why.size())
+        fprintf(stderr, "  %s\n", why.c_str());
+}
+
+struct DeliverCount {
+    u32 taken = 0, joined = 0, dropped = 0, raised = 0, past = 0, checks = 0;
+};
+
+// Random RECVs and data handlers of one program's threads on a few ports,
+// threads ended and started, and messages delivered to every port and past
+// them: each delivery held against deliver's old walk of every record (the
+// longest waiting RECV on the port takes it; else every thread with a data
+// handler there gets the interrupt), and the OS's own check every 50 steps.
+void deliver_keys_run(DeliverCount* n) {
+    OsSettings s;
+    s.ports = 5;
+    Rig g(256, false, 16384, DeviceKind::e_core, &s);
+    const u8 loop[2] = {encode(kJmp, kImm), 0};
+    const u32 code = g.place(loop, 2, 0, 2, 64);
+    const u32 me = g.cores[0].x.holder;
+    const u32 buf = g.m.alloc(me, 64, 0, 0);
+    CHECK(buf != 0);
+    for (u32 i = 0; i < 30; ++i)
+        CHECK(g.sys(0, kSpawn, code, i) != 0);
+    u64 x = 0x5EED0003ull;
+    const u8 msg[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    TextBuf why;
+    Array<u8> pending, states;
+    for (u32 step = 0; step < 8000; ++step) {
+        requeue(g);
+        if (!g.cores[0].thread) {
+            const u32 t = g.os.pick(DeviceKind::p_core);
+            if (t != ~0u)
+                g.os.put_on(t, 0);
+        }
+        const u32 kind = draw(&x) % 10;
+        if (kind < 3 && g.cores[0].thread) {
+            g.sys(0, kRecv, draw(&x) % 6, buf, 8, draw(&x) % 3 ? 0xFFFFFFFFu : 50);
+        } else if (kind < 5 && g.cores[0].thread) {
+            g.sys(0, kSetHandler, kOnData, draw(&x) % 4 ? code : 0, draw(&x) % 6);
+        } else if (kind < 6) {
+            const u32 t = draw(&x) % (g.os.thread_top() ? g.os.thread_top() : 1);
+            if (g.os.thread(t).state != ThreadState::free && !g.os.thread(t).core)
+                g.os.end_thread(t, DeathCause::exit);
+        } else if (kind < 7) {
+            if (g.cores[0].thread && g.os.program(me).threads < 60)
+                g.sys(0, kSpawn, code, 0);
+        } else {
+            const u32 port = 1 + draw(&x) % 7; // not 0 (the reset region's), and past os.ports
+            u32 best = ~0u;
+            pending.resize(0);
+            states.resize(0);
+            for (u32 t = 0; t < g.os.thread_top(); ++t) {
+                const Thread& th = g.os.thread(t);
+                if (th.state == ThreadState::waiting_recv && th.recv_port == port &&
+                    (best == ~0u || th.wait_seq < g.os.thread(best).wait_seq))
+                    best = t;
+                pending.push(th.pending);
+                states.push(static_cast<u8>(th.state));
+            }
+            const u64 taken = g.os.recv_direct, joined = g.os.inbox_joined;
+            g.os.deliver(port, msg, 1 + draw(&x) % 8, 3, 0);
+            n->past += port >= s.ports;
+            if (best != ~0u) {
+                CHECK(g.os.recv_direct == taken + 1 && g.os.thread(best).state != ThreadState::waiting_recv);
+                ++n->taken;
+            } else if (g.os.inbox_joined == joined + 1) {
+                ++n->joined;
+                for (u32 t = 0; t < g.os.thread_top(); ++t) {
+                    const Thread& th = g.os.thread(t);
+                    const bool has = th.state != ThreadState::free && th.handler[kOnData] && th.data_port == port;
+                    CHECK(th.pending == (has ? (pending[t] | (1u << kOnData)) : pending[t]));
+                    n->raised += has;
+                }
+            } else {
+                ++n->dropped;
+            }
+            for (u32 t = 0; t < states.size(); ++t) // no one else woke, or ended
+                CHECK(t == best || static_cast<u8>(g.os.thread(t).state) == states[t]);
+        }
+        if (step % 50 == 0 && why.size() == 0) {
+            CHECK(g.os.check(&why) && g.m.check(&why));
+            ++n->checks;
+        }
+    }
+    if (why.size())
+        fprintf(stderr, "  %s\n", why.c_str());
+}
+
+// The killer's draw as it was (os.cpp before pass 13): every program record
+// walked twice, each live one's allocations summed both times.
+u32 old_pick_by_bytes(const Rig& g, u64 draw) {
+    u64 total = 0;
+    for (u32 p = 0; p < g.os.program_capacity(); ++p)
+        if (g.os.program(kFirstProgramHolder + p).alive)
+            total += g.os.bytes_held(kFirstProgramHolder + p);
+    if (total == 0)
+        return 0;
+    u64 hi = 0;
+    _umul128(draw, total, &hi);
+    for (u32 p = 0; p < g.os.program_capacity(); ++p) {
+        if (!g.os.program(kFirstProgramHolder + p).alive)
+            continue;
+        const u64 n = g.os.bytes_held(kFirstProgramHolder + p);
+        if (hi < n)
+            return kFirstProgramHolder + p;
+        hi -= n;
+    }
+    return 0;
+}
+
+struct DrawCount {
+    u32 picks = 0, none = 0, started = 0, ended = 0, top = 0, checks = 0;
+};
+
+// Programs placed by hand and ended at random, each holding what it was
+// given, and the killer's draw held against the old one at every step.
+void killer_draw_run(DrawCount* n) {
+    Rig g(64, false, 16384);
+    const u8 loop[2] = {encode(kJmp, kImm), 0};
+    u64 x = 0x5EED0004ull;
+    TextBuf why;
+    Array<u32> live;
+    for (u32 step = 0; step < 4000; ++step) {
+        requeue(g);
+        const u32 kind = draw(&x) % 10;
+        if (kind < 3) {
+            const u32 at = g.m.alloc(RUN, 2, 2, 0);
+            if (at) {
+                memcpy(g.m.bytes() + at, loop, 2);
+                const u32 id = g.os.place_by_hand(RUN, at, at, 0);
+                if (id) {
+                    live.push(g.os.thread(g.index_of(id)).program);
+                    ++n->started;
+                } else {
+                    g.m.free(RUN, at);
+                }
+            }
+        } else if (kind < 6 && live.size()) {
+            g.m.alloc(live[draw(&x) % live.size()], 1 + draw(&x) % 200, 2, 0);
+        } else if (kind < 8 && live.size()) {
+            const u32 i = draw(&x) % live.size();
+            g.os.end_program(live[i], DeathCause::exit);
+            live[i] = live.back();
+            live.pop();
+            ++n->ended;
+        }
+        const u64 d = static_cast<u64>(draw(&x)) << 32 | draw(&x);
+        const u32 want = old_pick_by_bytes(g, d);
+        CHECK(g.os.pick_by_bytes(d) == want);
+        n->picks += want != 0;
+        n->none += want == 0;
+        u32 top = 0;
+        for (u32 p = 0; p < g.os.program_capacity(); ++p)
+            top = g.os.program(kFirstProgramHolder + p).alive ? p + 1 : top;
+        n->top = top > n->top ? top : n->top;
+        if (step % 50 == 0 && why.size() == 0) {
+            CHECK(g.os.check(&why) && g.m.check(&why));
+            ++n->checks;
+        }
+    }
+    if (why.size())
+        fprintf(stderr, "  %s\n", why.c_str());
+}
+
+} // namespace
+
+// stack_of without the walk of the program's threads, and SPAWN passing
+// over the threads whose IPs lie in none of the target's pages (pass 13):
+// each answer held against the walks they replaced, with os.stack_held on
+// and off. Off, a stack can be freed under its live thread and handed out
+// again, so two threads can have their stack at one base.
+void test_stack_lookup() {
+    LookupCount on, off;
+    stack_lookup_run(nullptr, &on);
+    OsSettings s;
+    s.stack_held = false;
+    stack_lookup_run(&s, &off);
+    printf("  stack lookup: held, %u threads, %u gifts (%u by a page), %u of %u FREEs; off, %u, %u (%u), "
+           "%u of %u, %u stacks shared\n",
+           on.asked[1], on.asked[2], on.by_page, on.freed, on.frees, off.asked[1], off.asked[2], off.by_page,
+           off.freed, off.frees, off.shared);
+    CHECK(on.asked[1] > 200 && on.asked[2] > 200 && on.by_page > 30 && on.freed > 20 && on.freed < on.frees);
+    CHECK(off.asked[1] > 200 && off.asked[2] > 200 && off.by_page > 30 && off.shared > 0);
+}
+
+// deliver without the walks of every record (pass 13): the ports' keys and
+// counts kept by note, each delivery held against the walks they replaced.
+void test_deliver_keys() {
+    DeliverCount n;
+    deliver_keys_run(&n);
+    printf("  deliver: %u taken by a RECV, %u joined the inbox (%u interrupts raised), %u dropped, %u past the "
+           "ports; %u checks\n",
+           n.taken, n.joined, n.raised, n.dropped, n.past, n.checks);
+    CHECK(n.taken > 200 && n.joined > 200 && n.raised > 200 && n.dropped > 20 && n.past > 100 && n.checks == 160);
+}
+
+// The killer's draw up to the highest live program, each one's bytes summed
+// once (pass 13), held against the draw it replaced.
+void test_killer_draw() {
+    DrawCount n;
+    killer_draw_run(&n);
+    printf("  killer's draw: %u picks and %u with nothing held, as before; %u programs started, %u ended, at most "
+           "%u records up; %u checks\n",
+           n.picks, n.none, n.started, n.ended, n.top, n.checks);
+    CHECK(n.picks > 3000 && n.none > 0 && n.started > 500 && n.ended > 400 && n.top > 20 && n.checks == 80);
+}
+
 void suite_os() {
     test_lax_replicator();
     test_strict_replicator();
@@ -643,6 +1050,9 @@ void suite_os() {
     test_spawn_rules();
     test_spawn_past_its_end();
     test_stack_held();
+    test_stack_lookup();
+    test_deliver_keys();
+    test_killer_draw();
     test_call_edges();
     test_waits();
     test_fault_handlers();

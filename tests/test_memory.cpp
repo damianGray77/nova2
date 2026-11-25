@@ -356,6 +356,80 @@ void test_random_calls() {
     printf("  memory: %u allocs, %u frees, %u protects; %u checks passed\n", allocs, frees, protects, checks_ok);
 }
 
+// The page an allocation takes on device d by hand, page by page: for a page
+// or less of class `cls` (permission "both"), the lowest slab of its class
+// with a slot free, else the lowest free page; for a span of `pages`, the
+// lowest run of free pages. The device's end_page if there is none.
+u32 lowest_by_hand(const Memory& m, u32 d, u32 cls, u32 pages) {
+    const MemDevice& dv = m.device(d);
+    if (pages == 0) {
+        for (u32 p = dv.first_page; p < dv.end_page; ++p) {
+            const Page& pg = m.page(p);
+            if (pg.state == PageState::slab && pg.cls == cls && pg.perm == Perm::both && pg.used < pg.slots)
+                return p;
+        }
+        pages = 1;
+    }
+    for (u32 p = dv.first_page, run = 0; p < dv.end_page; ++p) {
+        run = m.page(p).state == PageState::free ? run + 1 : 0;
+        if (run == pages)
+            return p + 1 - pages;
+    }
+    return dv.end_page;
+}
+
+// Pass 13's summary bits, a bit for each bitmap word with a bit set: in a
+// memory of 384 words a bitmap, with free pages and open slabs rare, every
+// pick is still the lowest (as found by hand), misses are still misses, and
+// the check holds.
+void test_rare_room() {
+    const MemDeviceSpec devs[] = {{1u << 20, 8 * 16, 950}, {1u << 19, 4 * 16, 1000}};
+    Memory m;
+    CHECK(make(m, 64, false, 2, 512, devs, 2, 512));
+    Array<u32> live;
+    for (u32 d = 0; d < 2; ++d)
+        for (u32 a = m.alloc_on(P1, 64, Perm::both, d); a; a = m.alloc_on(P1, 64, Perm::both, d))
+            live.push(a);
+    const u32 page_cls = m.page(m.page_of(live[0])).cls;
+    CHECK(live.size() > 24000 && checked(m));
+    Rng r(2027, 0, 1, 0);
+    for (usize i = live.size(); i-- > 0;) // a page in 300 free again
+        if (r.below(300) == 0) {
+            m.free(P1, live[i]);
+            live[i] = live.back();
+            live.pop();
+        }
+    u32 picks = 0, misses = 0, wrong = 0, checks_ok = 0;
+    for (u32 op = 0; op < 6000; ++op) {
+        if (r.below(100) < 45 && live.size()) {
+            const usize i = static_cast<usize>(r.below(live.size()));
+            m.free(P1, live[i]);
+            live[i] = live.back();
+            live.pop();
+        } else {
+            const u32 d = static_cast<u32>(r.below(2));
+            const u32 kind = static_cast<u32>(r.below(20));
+            const u32 size = kind < 12 ? 64 : kind < 17 ? 8 : 64 * (2 + static_cast<u32>(r.below(4)));
+            // Class 0 is 8 bytes.
+            const u32 want = lowest_by_hand(m, d, size == 8 ? 0 : page_cls, size > 64 ? size / 64 : 0);
+            const u32 a = m.alloc_on(P1, size, Perm::both, d);
+            if ((a ? m.page_of(a) : m.device(d).end_page) != want)
+                ++wrong;
+            if (a) {
+                live.push(a);
+                ++picks;
+            } else {
+                ++misses;
+            }
+        }
+        if (op % 500 == 499)
+            checks_ok += checked(m) ? 1 : 0;
+    }
+    CHECK(wrong == 0 && picks > 2000 && misses > 50 && checks_ok == 12);
+    printf("  memory: with room rare, %u picks and %u misses as found by hand (%u wrong); %u checks passed\n", picks,
+           misses, wrong, checks_ok);
+}
+
 } // namespace
 
 void suite_memory() {
@@ -370,4 +444,5 @@ void suite_memory() {
     test_gifts();
     test_written_extent();
     test_random_calls();
+    test_rare_room();
 }

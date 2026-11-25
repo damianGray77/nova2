@@ -27,6 +27,9 @@ void say(TextBuf* why, const char* msg) {
         why->append(msg);
 }
 
+// stacks_'s key for a stack at `base` of a thread of program `holder`.
+u64 stack_key(u32 holder, u32 base) { return static_cast<u64>(holder) << 32 | base; }
+
 
 } // namespace
 
@@ -86,6 +89,12 @@ bool Os::init(Memory* mem, Core* cores, u32 core_count, PlaceEnv* env, const OsS
     static_known_ = false; // until note_static
     live_programs_ = live_threads_ = 0;
     thread_top_ = thread_free_ = program_free_ = waiters_ = timers_ = 0;
+    program_top_ = 0;
+    stacks_.clear();
+    block_first_.resize(0);
+    block_first_.resize((mem->size() >> kStackBlockShift) + 1);
+    block_next_.resize(0);
+    block_next_.resize(cap);
     attention_.resize(0);
     attention_.resize(cap);
     saved_at_.resize(0);
@@ -97,6 +106,17 @@ bool Os::init(Memory* mem, Core* cores, u32 core_count, PlaceEnv* env, const OsS
     due_.resize(0);
     due_.resize(cap);
     due_.fill(kNever);
+    due_min_.resize(0);
+    due_min_.resize((cap + kDueGroup - 1) >> kDueGroupShift);
+    due_min_.fill(kNever);
+    recv_key_.resize(0);
+    recv_key_.resize(cap);
+    data_key_.resize(0);
+    data_key_.resize(cap);
+    recv_count_.resize(0);
+    recv_count_.resize(s.ports);
+    data_count_.resize(0);
+    data_count_.resize(s.ports);
     free_bits_.resize(0);
     free_bits_.resize((static_cast<usize>(cap) + 63) / 64);
     for (u32 t = 0; t < cap; ++t)
@@ -217,6 +237,7 @@ u32 Os::new_program(BirthCause cause, u64 parent_uid) {
         program_free_ = p + 1;
         pr = Program{};
         pr.alive = true;
+        program_top_ = p + 1 > program_top_ ? p + 1 : program_top_;
         pr.cause = cause;
         pr.uid = (static_cast<u64>(env_->place_id) + 1) << 40 | next_uid_++;
         pr.parent_uid = parent_uid;
@@ -259,6 +280,7 @@ u32 Os::new_thread(u32 holder, u32 start, u32 value, u32 device) {
         next_thread_id_ = 1;
     th.program = holder;
     th.stack = stack;
+    add_stack(t);
     note(t);
     // A new thread's registers (A.3): A = the starting value; IP, B, C and D =
     // the start, as an idle run's are (the 2026-11-13 review); SP = the top of
@@ -357,6 +379,16 @@ u64 due_of(const Thread& th) {
     return due;
 }
 
+// A thread's key for deliver() (1 + a port, 0: none) becomes k, and the
+// ports' counts follow.
+void rekey(u32& key, u32 k, u32* count) {
+    if (key)
+        --count[key - 1];
+    if (k)
+        ++count[k - 1];
+    key = k;
+}
+
 } // namespace
 
 // Every change of a thread's state comes through here, so the count of
@@ -375,20 +407,60 @@ void Os::note(u32 t) {
     attention_[t] = now;
     saved_at_[t] = live && !th.core ? th.stack : kNowhere;
     frame_at_[t] = live && th.in_handler ? th.frame : kNowhere;
+    const u32 rk = th.state == ThreadState::waiting_recv && th.recv_port < s_.ports ? th.recv_port + 1 : 0;
+    const u32 dk = live && th.handler[kOnData] && th.data_port < s_.ports ? th.data_port + 1 : 0;
+    if (rk != recv_key_[t])
+        rekey(recv_key_[t], rk, recv_count_.data());
+    if (dk != data_key_[t])
+        rekey(data_key_[t], dk, data_count_.data());
     // A thread with no attention bit has nothing due, ever: its entry is
     // kNever already unless it had a bit until now. So a thread that only
     // goes on and off its core, as most do in a busy world, costs no write
     // here.
-    if (was | now)
-        due_[t] = due_of(th);
+    if (was | now) {
+        const u64 d = due_of(th), old = due_[t];
+        due_[t] = d;
+        if (d != old)
+            note_due(t, old, d);
+    }
+}
+
+// Thread t's due went from `old` to `d`: its group's least follows. Only
+// when the least itself went up are the group's entries read again.
+void Os::note_due(u32 t, u64 old, u64 d) {
+    u64& least = due_min_[t >> kDueGroupShift];
+    if (d < least) {
+        least = d;
+    } else if (old == least) {
+        const u32 from = t >> kDueGroupShift << kDueGroupShift;
+        const u32 to = from + kDueGroup < due_.size() ? from + kDueGroup : static_cast<u32>(due_.size());
+        u64 m = kNever;
+        for (u32 u = from; u < to; ++u)
+            m = due_[u] < m ? due_[u] : m;
+        least = m;
+    }
 }
 
 // What's kept beside the records, worked out from them (after a load).
 void Os::reindex() {
     thread_top_ = waiters_ = timers_ = 0;
     thread_free_ = static_cast<u32>(threads_.size());
+    stacks_.clear();
+    block_first_.resize((mem_->size() >> kStackBlockShift) + 1);
+    block_first_.fill(0);
+    block_next_.resize(threads_.size());
     due_.resize(threads_.size());
     due_.fill(kNever); // note() leaves an entry alone where no attention bit was or is set
+    due_min_.resize((threads_.size() + kDueGroup - 1) >> kDueGroupShift);
+    due_min_.fill(kNever);
+    recv_key_.resize(threads_.size());
+    recv_key_.fill(0);
+    data_key_.resize(threads_.size());
+    data_key_.fill(0);
+    recv_count_.resize(s_.ports);
+    recv_count_.fill(0);
+    data_count_.resize(s_.ports);
+    data_count_.fill(0);
     attention_.fill(0);
     free_bits_.resize(0);
     free_bits_.resize((threads_.size() + 63) / 64);
@@ -404,10 +476,13 @@ void Os::reindex() {
         thread_top_ = t + 1;
         waiters_ += waits(th.state) ? 1 : 0;
         timers_ += th.handler[kOnTimer] ? 1 : 0;
+        add_stack(t);
     }
     program_free_ = 0;
     while (program_free_ < programs_.size() && programs_[program_free_].alive)
         ++program_free_;
+    program_top_ = static_cast<u32>(programs_.size());
+    lower_program_top();
 }
 
 // ---------------------------------------------------------------------------
@@ -737,6 +812,7 @@ void Os::end_thread(u32 t, DeathCause cause) {
     if (th.next)
         threads_[th.next - 1].prev = th.prev;
     const u32 stack = th.stack;
+    drop_stack(t);
     set_state(th, ThreadState::free);
     timers_ -= th.handler[kOnTimer] ? 1 : 0;
     th = Thread{};
@@ -765,6 +841,7 @@ void Os::end_thread(u32 t, DeathCause cause) {
     f.cause = cause;
     deaths.push(f);
     pr.alive = false;
+    lower_program_top();
     if (holder - kFirstProgramHolder < program_free_)
         program_free_ = holder - kFirstProgramHolder;
     --live_programs_;
@@ -815,17 +892,37 @@ bool Os::runs_on(u32 holder, u32 ip, u32 id) const {
 // A thread's saved registers wait in the first bytes of its stack, so while
 // the thread lives its stack is in use, as the allocation it runs on is
 // (R15). Every stack is an allocation of os.stack_size bytes, so nothing
-// else is looked at twice.
+// else is looked up. A live thread of the program with its stack at the
+// allocation's base is one in stacks_ (until pass 13, a walk of the
+// program's threads).
 bool Os::stack_of(u32 holder, u32 id) const {
     if (!id || holder < kFirstProgramHolder)
         return false;
     const Alloc& a = mem_->record(id);
     if (a.holder != holder || a.size != s_.stack_size)
         return false;
-    for (u32 t = programs_[holder - kFirstProgramHolder].first_thread; t; t = threads_[t - 1].next)
-        if (threads_[t - 1].stack == a.base)
-            return true;
-    return false;
+    return stacks_.contains(stack_key(holder, a.base));
+}
+
+void Os::add_stack(u32 t) {
+    const Thread& th = threads_[t];
+    ++stacks_.get_or_insert(stack_key(th.program, th.stack));
+    u32& first = block_first_[th.stack >> kStackBlockShift];
+    block_next_[t] = first;
+    first = t + 1;
+}
+
+void Os::drop_stack(u32 t) {
+    const Thread& th = threads_[t];
+    u32* n = stacks_.find(stack_key(th.program, th.stack));
+    if (n && --*n == 0)
+        stacks_.erase(stack_key(th.program, th.stack));
+    // A block's list is short: the stacks starting in a block's bytes.
+    u32* at = &block_first_[th.stack >> kStackBlockShift];
+    while (*at && *at != t + 1)
+        at = &block_next_[*at - 1];
+    if (*at)
+        *at = block_next_[t];
 }
 
 u32 Os::caller_ip(u32 core, u32 t) const {
@@ -882,14 +979,24 @@ u32 Os::spawn(u32 core, u32 addr, u32 value, u32 sys_ip) {
     // program's threads is running (page sharing included: runs_on), SPAWN
     // starts a thread: an allocation in use is never given away (R15). A
     // live thread's stack is in use too (os.stack_held). An idle run has no
-    // such allocation.
+    // such allocation. Each test only reads, so the cheap ones go first; and
+    // code at an IP runs on the allocation only from a page the allocation
+    // covers (runs_on: its own bytes, or a page it shares), so a thread with
+    // its IP in none of them is passed over unasked (pass 13).
     bool own = false;
     if (!c.idle_run) {
-        own = runs_on(holder, sys_ip, id);
-        for (u32 t = programs_[holder - kFirstProgramHolder].first_thread; t && !own; t = threads_[t - 1].next)
-            own = runs_on(holder, caller_ip(core, t - 1), id);
-        if (!own && s_.stack_held)
-            own = stack_of(holder, id);
+        own = runs_on(holder, sys_ip, id) || (s_.stack_held && stack_of(holder, id));
+        if (!own) {
+            const Alloc& a = mem_->record(id);
+            const u32 span = a.size > a.extent ? a.size : a.extent;
+            const u32 lo = mem_->page_of(a.base);
+            const u32 pages = mem_->page_of(a.base + (span ? span : 1) - 1) - lo + 1;
+            for (u32 t = programs_[holder - kFirstProgramHolder].first_thread; t && !own; t = threads_[t - 1].next) {
+                const u32 ip = caller_ip(core, t - 1);
+                if (mem_->page_of(ip) - lo < pages)
+                    own = runs_on(holder, ip, id);
+            }
+        }
     }
     spawn_asked_ = own ? 1 : 2;
     if (own) {
@@ -908,6 +1015,7 @@ u32 Os::spawn(u32 core, u32 addr, u32 value, u32 sys_ip) {
     const u32 t = new_thread(child, addr, value, device);
     if (t == ~0u) {
         programs_[p].alive = false;
+        lower_program_top();
         if (p < program_free_)
             program_free_ = p;
         --live_programs_;
@@ -929,6 +1037,7 @@ u32 Os::place_by_hand(u32 run, u32 addr, u32 start, u32 value) {
     const u32 t = new_thread(child, start, value, mem_->device_of(start));
     if (t == ~0u) {
         programs_[p].alive = false;
+        lower_program_top();
         if (p < program_free_)
             program_free_ = p;
         --live_programs_;
@@ -1046,23 +1155,33 @@ u64 Os::bytes_held(u32 holder) const {
     return n;
 }
 
+void Os::lower_program_top() {
+    while (program_top_ && !programs_[program_top_ - 1].alive)
+        --program_top_;
+}
+
 u32 Os::pick_by_bytes(u64 draw) const {
+    // Each live program's bytes, summed once (pass 13: they were summed
+    // again for the pick), up to the highest live record.
+    Array<u64> held;
+    held.resize(program_top_);
     u64 total = 0;
-    for (u32 p = 0; p < programs_.size(); ++p)
-        if (programs_[p].alive)
-            total += bytes_held(kFirstProgramHolder + p);
+    for (u32 p = 0; p < program_top_; ++p)
+        if (programs_[p].alive) {
+            held[p] = bytes_held(kFirstProgramHolder + p);
+            total += held[p];
+        }
     if (total == 0)
         return 0;
     // The draw's place among the bytes: the high half of draw × total.
     u64 hi = 0;
     _umul128(draw, total, &hi);
-    for (u32 p = 0; p < programs_.size(); ++p) {
+    for (u32 p = 0; p < program_top_; ++p) {
         if (!programs_[p].alive)
             continue;
-        const u64 n = bytes_held(kFirstProgramHolder + p);
-        if (hi < n)
+        if (hi < held[p])
             return kFirstProgramHolder + p;
-        hi -= n;
+        hi -= held[p];
     }
     return 0; // cannot happen
 }
@@ -1622,9 +1741,19 @@ void Os::cancel_net(u32 core) {
 }
 
 void Os::deliver(u32 port, const u8* bytes, u32 size, u32 from, u64 sender) {
-    // The thread that has waited longest in RECV on the port takes it.
+    // The thread that has waited longest in RECV on the port takes it. The
+    // keys (note) find the port's waiters without reading every record, up
+    // to the last of them; a port past os.ports (sent from a place with
+    // more) has none kept, so its threads are looked for record by record.
+    const bool kept = port < s_.ports;
     u32 best = ~0u;
-    for (u32 t = 0; t < thread_top_; ++t) {
+    for (u32 t = 0, left = kept ? recv_count_[port] : 0; left; ++t)
+        if (recv_key_[t] == port + 1) {
+            --left;
+            if (best == ~0u || threads_[t].wait_seq < threads_[best].wait_seq)
+                best = t;
+        }
+    for (u32 t = 0; !kept && t < thread_top_; ++t) {
         const Thread& th = threads_[t];
         if (th.state == ThreadState::waiting_recv && th.recv_port == port &&
             (best == ~0u || th.wait_seq < threads_[best].wait_seq))
@@ -1647,12 +1776,19 @@ void Os::deliver(u32 port, const u8* bytes, u32 size, u32 from, u64 sender) {
     inbox_.push(m);
     inbox_used_[port] += size;
     ++inbox_joined;
-    // The data interrupt, pending once for every thread with a handler here.
-    for (u32 t = 0; t < thread_top_; ++t) {
+    // The data interrupt, pending once for every thread with a handler here
+    // (found as the waiters are; note leaves the keys as they are).
+    for (u32 t = 0, left = kept ? data_count_[port] : 0; left; ++t)
+        if (data_key_[t] == port + 1) {
+            --left;
+            threads_[t].pending = static_cast<u8>(threads_[t].pending | (1u << kOnData));
+            note(t); // one waiting for an interrupt is due now
+        }
+    for (u32 t = 0; !kept && t < thread_top_; ++t) {
         Thread& th = threads_[t];
         if (th.state != ThreadState::free && th.handler[kOnData] && th.data_port == port) {
             th.pending = static_cast<u8>(th.pending | (1u << kOnData));
-            note(t); // one waiting for an interrupt is due now
+            note(t);
         }
     }
 }
@@ -1762,6 +1898,12 @@ bool Os::check(TextBuf* why) const {
         return broken(why, "os check: the live thread count is wrong:", live_threads_);
     // What's kept beside the records agrees with them.
     u32 top = 0, waiting = 0, timed = 0;
+    if (recv_key_.size() != nt || data_key_.size() != nt || recv_count_.size() != s_.ports ||
+        data_count_.size() != s_.ports)
+        return broken(why, "os check: the ports kept for deliver are the wrong size:", recv_count_.size());
+    Array<u32> recv_n, data_n; // each port's threads, counted again
+    recv_n.resize(s_.ports);
+    data_n.resize(s_.ports);
     for (u32 t = 0; t < nt; ++t) {
         const Thread& th = threads_[t];
         const bool live = th.state != ThreadState::free;
@@ -1770,6 +1912,12 @@ bool Os::check(TextBuf* why) const {
             frame_at_[t] != (live && th.in_handler ? th.frame : kNowhere) || due_[t] != due_of(th) ||
             ((free_bits_[t >> 6] >> (t & 63)) & 1) != (live ? 0u : 1u))
             return broken(why, "os check: what's kept beside a thread's record doesn't follow from it: thread", t);
+        const u32 rk = th.state == ThreadState::waiting_recv && th.recv_port < s_.ports ? th.recv_port + 1 : 0;
+        const u32 dk = live && th.handler[kOnData] && th.data_port < s_.ports ? th.data_port + 1 : 0;
+        if (recv_key_[t] != rk || data_key_[t] != dk)
+            return broken(why, "os check: the ports kept for deliver don't follow from a thread's record: thread", t);
+        recv_n[rk ? rk - 1 : 0] += rk ? 1 : 0;
+        data_n[dk ? dk - 1 : 0] += dk ? 1 : 0;
         if (th.state == ThreadState::free) {
             if (t < thread_free_)
                 return broken(why, "os check: a free thread record lies below the first free mark: thread", t);
@@ -1783,10 +1931,54 @@ bool Os::check(TextBuf* why) const {
         return broken(why, "os check: the highest thread record in use is wrong:", thread_top_);
     if (waiting != waiters_ || timed != timers_)
         return broken(why, "os check: the count of waiting or timed threads is wrong:", waiters_ + timers_);
+    for (u32 p = 0; p < s_.ports; ++p)
+        if (recv_n[p] != recv_count_[p] || data_n[p] != data_count_[p])
+            return broken(why, "os check: a port's count of threads kept for deliver is wrong: port", p);
+    HashMap<u32> stacks;
+    for (u32 t = 0; t < nt; ++t)
+        if (threads_[t].state != ThreadState::free)
+            ++stacks.get_or_insert(stack_key(threads_[t].program, threads_[t].stack));
+    if (stacks.size() != stacks_.size())
+        return broken(why, "os check: the count of live threads' stacks kept is wrong:", stacks_.size());
+    for (usize i = 0; i < stacks.slot_count(); ++i) {
+        const u32* n = stacks.slot_used(i) ? stacks_.find(stacks.slot_key(i)) : nullptr;
+        if (stacks.slot_used(i) && (!n || *n != stacks.slot_value(i)))
+            return broken(why, "os check: a live thread's stack isn't kept as it lies: holder",
+                          stacks.slot_key(i) >> 32);
+    }
+    for (u32 g = 0; g < due_min_.size(); ++g) {
+        u64 m = kNever;
+        for (u32 t = g << kDueGroupShift; t < nt && t < (g + 1) << kDueGroupShift; ++t)
+            m = due_[t] < m ? due_[t] : m;
+        if (due_min_[g] != m)
+            return broken(why, "os check: a group's least due isn't its threads': group", g);
+    }
+    // Each live thread once in its stack's block's list, and nothing else;
+    // a handler's frame inside its thread's stack, past the saved registers.
+    u32 listed = 0;
+    for (u32 b = 0; b < block_first_.size(); ++b)
+        for (u32 t = block_first_[b]; t; t = block_next_[t - 1]) {
+            if (t > nt || ++listed > live_threads_ || threads_[t - 1].state == ThreadState::free ||
+                threads_[t - 1].stack >> kStackBlockShift != b)
+                return broken(why, "os check: a block's list of threads is wrong: block", b);
+        }
+    if (listed != live_threads_)
+        return broken(why, "os check: the threads listed by their stacks' blocks are too few:", listed);
+    for (u32 t = 0; t < nt; ++t) {
+        const Thread& th = threads_[t];
+        if (th.state != ThreadState::free && th.in_handler &&
+            (th.frame < th.stack + kSavedRegsBytes || th.frame > th.stack + s_.stack_size - kHandlerFrameBytes))
+            return broken(why, "os check: a handler's frame lies outside its thread's stack: thread", t);
+    }
     for (u32 h = 0; h < program_free_ && h < programs_.size(); ++h)
         if (!programs_[h].alive)
             return broken(why, "os check: a free program record lies below the first free mark: holder",
                           h + kFirstProgramHolder);
+    u32 ptop = 0;
+    for (u32 h = 0; h < programs_.size(); ++h)
+        ptop = programs_[h].alive ? h + 1 : ptop;
+    if (ptop != program_top_)
+        return broken(why, "os check: the highest live program record is wrong:", program_top_);
     // The cores.
     for (u32 c = 0; c < core_count_; ++c) {
         const Core& k = cores_[c];

@@ -28,6 +28,7 @@
 //   taken by the world at the barrier the request lands at.
 #include "nova2/array.h"
 #include "nova2/cpu.h"
+#include "nova2/hashmap.h"
 #include "nova2/memory.h"
 #include "nova2/types.h"
 
@@ -569,6 +570,22 @@ class Os {
     // and the walk reads this and not their records (optimization-plan.md,
     // pass 7).
     const u64* due() const { return due_.data(); }
+    // due_min: for each group of kDueGroup thread records, from the first,
+    // the least of their due (pass 13): a tick's start passes over a group
+    // with nothing due.
+    static constexpr u32 kDueGroupShift = 6;
+    static constexpr u32 kDueGroup = 1u << kDueGroupShift;
+    const u64* due_min() const { return due_min_.data(); }
+    // The live threads by the block of kStackBlockBytes their stack starts
+    // in (pass 13): first_in_block, a block's first thread record + 1 (0:
+    // none); next_in_block, the one after thread t in its block's, likewise.
+    // In no order. A thread's saved registers lie at its stack's base, and a
+    // handler's frame inside its stack (enter_handler), so a thread with
+    // either in a block is in a list near it, found without a walk.
+    static constexpr u32 kStackBlockShift = 6;
+    static constexpr u32 kStackBlockBytes = 1u << kStackBlockShift;
+    u32 first_in_block(u32 block) const { return block_first_[block]; }
+    u32 next_in_block(u32 t) const { return block_next_[t]; }
     // After a change to a thread's record made outside the OS (a timer the
     // scheduler fired): what's kept beside the record follows it again.
     void thread_changed(u32 t) { note(t); }
@@ -791,6 +808,31 @@ class Os {
     u64 rq_seq_ = 0;
     bool working_[3] = {true, true, true}; // any, P, E
     bool front(u32 q, ReadyEntry* out); // the first live entry, stale ones dropped
+
+    // The live threads' stacks, kept with the records above (reindex, check):
+    // a program's holder and a stack's base, as stack_key makes them, to how
+    // many of that program's live threads have their stack there. One, but
+    // for a stack freed under its live thread and handed out again, as it
+    // can be with os.stack_held off. So stack_of finds a stack without
+    // walking the program's threads (pass 13). Last, moving no other member.
+    HashMap<u32> stacks_;
+    Array<u32> block_first_; // by block of memory: see first_in_block
+    Array<u32> block_next_;  // by thread record: see next_in_block
+    void add_stack(u32 t);   // thread t, just started, in the two above
+    void drop_stack(u32 t);  // and out of them, as it ends
+    Array<u64> due_min_; // see due_min()
+    void note_due(u32 t, u64 old, u64 d);
+    // What deliver() looks for, kept by note() (pass 13): by thread record,
+    // 1 + the port it waits on in RECV and 1 + the port its data handler is
+    // on (0: none, or a port past os.ports, left to the old walk), and by
+    // port, how many threads have each. So deliver() finds a port's threads
+    // without reading every record, and stops once it has seen them all.
+    Array<u32> recv_key_, data_key_;
+    Array<u32> recv_count_, data_count_;
+    // One past the highest live program record, kept as programs start and
+    // end (reindex, check), so the killer's draw reads no further (pass 13).
+    u32 program_top_ = 0;
+    void lower_program_top(); // after a program's end
 };
 
 } // namespace nova2

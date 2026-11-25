@@ -352,6 +352,63 @@ void test_busy_time() {
 
 } // namespace
 
+// A tick's start passes over a group of thread records with nothing due
+// (Os::due_min; pass 13). Two hundred threads, a group of records each
+// sleeping for 100 to 127 ticks, waiting on timers of 1 to 7, and sleeping
+// for 1 to 23, some ended and others started as they
+// go: each tick the OS's check holds every group's least due to its
+// threads', so a group passed over has no thread a walk of them all would
+// have woken; and groups are passed over, and threads woken, throughout.
+void test_due_groups() {
+    World w(2, DeviceKind::p_core, 32768);
+    u8 sleeper[6] = {encode(kMov, kImm), 0, encode(kSys, kImm), kSleep, encode(kJmp, kImm), static_cast<u8>(-4)};
+    u8 waiter[32] = {encode(kMov, kIp), encode(kAdd, kImm), 20, encode(kSto, kB), encode(kMov, kImm), 0,
+                     encode(kSto, kC), encode(kMov, kImm), 2, encode(kSys, kImm), kSetHandler,
+                     encode(kMov, kImm), 0, encode(kSys, kImm), kSleep, encode(kJmp, kImm),
+                     static_cast<u8>(-4)};
+    waiter[20] = encode(kSys, kImm);
+    waiter[21] = kHret;
+    u32 ids[200];
+    for (u32 i = 0; i < 200; ++i) {
+        if (i / 64 == 1) { // a group of records for each kind
+            waiter[5] = static_cast<u8>(1 + i % 7);
+            ids[i] = w.place(waiter, 32);
+        } else {
+            sleeper[1] = static_cast<u8>(i / 64 == 2 ? 1 + i % 23 : 100 + i % 28); // under 128: an immediate is signed
+            ids[i] = w.place(sleeper, 6);
+        }
+        CHECK(ids[i] != 0);
+    }
+    u32 passed = 0, woken = 0, broken = 0;
+    for (u32 k = 0; k < 400; ++k) {
+        const u64 now = w.env.tick;
+        const u8* attention = w.os.attention();
+        const u64* due = w.os.due();
+        const u64* least = w.os.due_min();
+        for (u32 g = 0; g << Os::kDueGroupShift < w.os.thread_top(); ++g) {
+            u32 waiting = 0;
+            for (u32 t = g << Os::kDueGroupShift; t < (g + 1) << Os::kDueGroupShift && t < w.os.thread_top(); ++t) {
+                waiting += attention[t] != 0;
+                woken += attention[t] && due[t] <= now;
+            }
+            passed += waiting && least[g] > now;
+        }
+        if (k % 9 == 4) { // one ends, and another starts in its place
+            const u32 t = w.index_of(ids[k % 200]);
+            if (t != ~0u && !w.os.thread(t).core) {
+                w.os.end_thread(t, DeathCause::exit);
+                ids[k % 200] = w.place(sleeper, 6);
+            }
+        }
+        w.ticks(1);
+        TextBuf why;
+        broken += !w.os.check(&why);
+    }
+    printf("  due groups: %u groups with waiting threads passed over in 400 ticks, %u threads woken or timed\n",
+           passed, woken);
+    CHECK(broken == 0 && passed > 400 && woken > 400);
+}
+
 void suite_sched() {
     test_budget();
     test_fair_share();
@@ -364,4 +421,5 @@ void suite_sched() {
     test_turn_left();
     test_replicator_fills_a_place();
     test_busy_time();
+    test_due_groups();
 }

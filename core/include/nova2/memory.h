@@ -284,6 +284,15 @@ class Memory {
     u32 region_writes_ = 0;
     u32 free_bytes_ = 0;
     bool strict_ = false;
+    // A bit for each word of free_bits_, and of each of open_bits_'s
+    // bitmaps, set if the word has a bit set: first_set passes over 64 words
+    // with none at a time (pass 13). They follow from the bitmaps, so they
+    // aren't saved: resum() works them out after a load, and check() checks
+    // them. Last, moving no other member.
+    Array<u64> free_sum_;
+    Array<u64> open_sum_;
+    u32 sum_words_ = 0; // u64 words per summary
+    void resum();
 };
 
 } // namespace nova2

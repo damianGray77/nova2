@@ -134,6 +134,7 @@ u64 place_seed(u64 seed, u32 id, u32 incarnation);
 inline constexpr u32 kFailedBlockShift = 6;
 static_assert(kHandlerFrameBytes <= kSavedRegsBytes && kSavedRegsBytes <= (1u << kFailedBlockShift),
               "a state starting in a block ends in it or the next");
+static_assert(kFailedBlockShift == Os::kStackBlockShift, "the marks' blocks are the OS's lists' (pass 13)");
 inline u32 failed_block_past(u32 bytes) { return (bytes + (1u << kFailedBlockShift) - 1) >> kFailedBlockShift; }
 inline u32 failed_mark_words(u32 bytes) { return (failed_block_past(bytes) >> 6) + 1; }
 void failed_marks(const u32* addrs, u32 count, u64* bits);
@@ -492,6 +493,17 @@ class Place {
     // Last, moving no other member: with the scratch above, the world with
     // fading made negligible measured a little slower (pass 12).
     Array<u64> failed_blocks_;
+    // And a bit a thread record for the threads it holds against the marks,
+    // likewise clear between calls (pass 13).
+    Array<u64> failed_seen_;
+
+  public:
+    // end_failed_marked reads the OS's lists by block with more than this
+    // many threads for each list the failed bytes may read, else walks every
+    // thread (pass 13): the same threads end either way. 12 measured best
+    // on open-5 (of 4, 12 and 32): a list read is a random one, the walk
+    // reads in order. Not saved; a test sets 0 to take the lists always.
+    u32 lists_pay = 12;
 };
 
 } // namespace nova2

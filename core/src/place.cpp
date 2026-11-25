@@ -1117,22 +1117,70 @@ void Place::end_failed_among(const u32* addrs, u32 count, u32 from, u32 to) {
 // holds no failed byte (place.h) and is passed by; for one that does, the
 // bytes decide. A byte past memory's end, which no state holds, is left to
 // the plain way, with its kNowhere edge (os.h).
+//
+// Only the threads that may have a state starting in a marked block are
+// looked at (pass 13): its saved registers start at its stack's base, and a
+// handler's frame at least kSavedRegsBytes past it and no less than
+// kHandlerFrameBytes before the stack's end (enter_handler). So such a
+// thread's stack starts in the marked block or at most `reach` blocks
+// before it, in the OS's lists by block. Each found is marked in
+// failed_seen_, and they are taken in record order from there.
+// That reads a few lists for each failed byte, where the walk of every
+// thread reads two words a thread: so with few threads for the bytes
+// (lists_pay, place.h), every thread is walked as before. Either way, the
+// same threads in the same order.
 bool Place::end_failed_marked(const u32* addrs, u32 count) {
     const u32 size = mem.size();
-    for (u32 i = 0; i < count; ++i)
+    u32 hi = 0; // the last failed byte
+    for (u32 i = 0; i < count; ++i) {
         if (addrs[i] >= size)
             return false;
+        hi = addrs[i] > hi ? addrs[i] : hi;
+    }
     const u32 words = failed_mark_words(size);
     if (failed_blocks_.size() < words)
         failed_blocks_.resize(words); // zero-filled; cleared again after each use
     u64* const bits = failed_blocks_.data();
     failed_marks(addrs, count, bits);
+    const u32 top = os.thread_top();
     const u32 past = failed_block_past(size);
     const u32* const saved = os.saved_at();
     const u32* const frame = os.frame_at();
-    for (u32 t = 0, top = os.thread_top(); t < top; ++t)
-        if (failed_marked(bits, past, saved[t]) | failed_marked(bits, past, frame[t]))
-            end_failed_among(addrs, count, t, t + 1);
+    const u32 reach = (os.settings().stack_size - kHandlerFrameBytes + Os::kStackBlockBytes - 1) >> kFailedBlockShift;
+    if (top <= static_cast<u64>(lists_pay) * (reach + 2) * count) {
+        for (u32 t = 0; t < top; ++t)
+            if (failed_marked(bits, past, saved[t]) | failed_marked(bits, past, frame[t]))
+                end_failed_among(addrs, count, t, t + 1);
+        failed_unmark(addrs, count, bits);
+        return true;
+    }
+    if (failed_seen_.size() < (top + 63) >> 6)
+        failed_seen_.resize((top + 63) >> 6); // likewise
+    u64* const seen = failed_seen_.data();
+    u32 next = 0, first = ~0u, last = 0; // the next block whose list is unread; the threads found
+    for (u32 w = 0, end = (hi >> kFailedBlockShift >> 6) + 1; w < end; ++w)
+        for (u64 m = bits[w]; m; m &= m - 1) {
+            unsigned long i;
+            _BitScanForward64(&i, m);
+            const u32 k = w * 64 + static_cast<u32>(i);
+            for (u32 b = k - (k < next + reach ? k - next : reach); b <= k; ++b)
+                for (u32 t = os.first_in_block(b); t; t = os.next_in_block(t - 1)) {
+                    seen[(t - 1) >> 6] |= 1ull << ((t - 1) & 63);
+                    first = t - 1 < first ? t - 1 : first;
+                    last = t - 1 > last ? t - 1 : last;
+                }
+            next = k + 1;
+        }
+    for (u32 w = first >> 6; first != ~0u && w <= last >> 6; ++w) {
+        for (u64 m = seen[w]; m; m &= m - 1) {
+            unsigned long i;
+            _BitScanForward64(&i, m);
+            const u32 t = w * 64 + static_cast<u32>(i);
+            if (failed_marked(bits, past, saved[t]) | failed_marked(bits, past, frame[t]))
+                end_failed_among(addrs, count, t, t + 1);
+        }
+        seen[w] = 0;
+    }
     failed_unmark(addrs, count, bits);
     return true;
 }
