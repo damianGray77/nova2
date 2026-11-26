@@ -746,7 +746,9 @@ i32 draw_now(Canvas& c, i32 x, i32 y, i32 mw, i32 lh, World& w, const Place& p) 
 i32 draw_place_page(Canvas& c, i32 x, i32 y, i32 mw, i32 lh, World& w, Place& p, bool gate5) {
     char buf[200], state[64];
     y = draw_now(c, x, y, mw, lh, w, p);
-    snprintf(buf, sizeof buf, "OS: %s, %u-byte pages", p.mem.strict() ? "strict" : "lax", p.mem.page_size());
+    char lim[40];
+    thread_limit_text(w.settings(), p.os.settings().thread_limit, lim, sizeof lim); // "" with no limits (9.6)
+    snprintf(buf, sizeof buf, "OS: %s, %u-byte pages%s", p.mem.strict() ? "strict" : "lax", p.mem.page_size(), lim);
     c.text(x, y, buf, kFontUi, kText, kAlignLeft, mw);
     y += lh;
     snprintf(buf, sizeof buf, "programs %u, threads %u, births %llu, deaths %llu", p.os.live_programs(),

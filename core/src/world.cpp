@@ -134,9 +134,32 @@ void deal_by_fields(const Map& map, u64 seed, const MapSettings& ms, Array<Place
     pair_up(to, from);
     for (u32 k = 0; k < n; ++k)
         hw[static_cast<u32>(to[k])].strict = drawn[static_cast<u32>(from[k])].strict;
+    // The limits on a program's threads, by theirs (9.6, 2026-11-25): no
+    // limit (0) last, as the most threads.
+    field_ranks(map, seed, Field::threads, ms, &rank);
+    to.clear();
+    from.clear();
+    for (u32 i = 0; i < n; ++i) {
+        to.push((static_cast<u64>(rank[i]) << kIdBits) | i);
+        const u64 most = drawn[i].thread_limit ? drawn[i].thread_limit : 0xFFFFFFFFull + 1;
+        from.push((most << kIdBits) | i);
+    }
+    pair_up(to, from);
+    for (u32 k = 0; k < n; ++k)
+        hw[static_cast<u32>(to[k])].thread_limit = drawn[static_cast<u32>(from[k])].thread_limit;
 }
 
 } // namespace
+
+void draw_places(const WorldSettings& ws, const MapSettings& ms, const Map& map, Array<PlaceHw>* out) {
+    Array<PlaceHw>& hw = *out;
+    hw.resize(0);
+    hw.resize(ws.places);
+    for (u32 i = 0; i < ws.places; ++i)
+        draw_hardware(ws, i, &hw[i]);
+    if (ms.fields && map.placed())
+        deal_by_fields(map, ws.seed, ms, hw);
+}
 
 World::~World() {
     clear();
@@ -182,11 +205,7 @@ bool World::init(Config& cfg, TextBuf* why) {
         dark_.resize(ws_.places);
     }
     Array<PlaceHw> hw;
-    hw.resize(ws_.places);
-    for (u32 i = 0; i < ws_.places; ++i)
-        draw_hardware(ws_, i, &hw[i]);
-    if (ms_.fields && map_.placed())
-        deal_by_fields(map_, ws_.seed, ms_, hw);
+    draw_places(ws_, ms_, map_, &hw);
     // Visits follow density (7.8): a place's mean interval is the world's ×
     // (its density ÷ the average)^(−tie). Its density is the map's density
     // to the power of its rank among the places by the density field, as
@@ -801,6 +820,8 @@ void World::respawn_hw(u32 i, PlaceHw* out) const {
     h.page_size = hw0_[who].page_size;
     who = map_.nearest_dealt(Field::strict, map_.field_now(Field::strict, i));
     h.strict = hw0_[who].strict;
+    who = map_.nearest_dealt(Field::threads, map_.field_now(Field::threads, i));
+    h.thread_limit = hw0_[who].thread_limit;
     who = map_.nearest_dealt(Field::coolers, map_.field_now(Field::coolers, i));
     h.cooler = hw0_[who].cooler;
     who = map_.nearest_dealt(Field::density, map_.field_now(Field::density, i));

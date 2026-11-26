@@ -10,6 +10,8 @@
 #include <intrin.h> // _umul128
 
 #include "check.h"
+#include "nova2/archive.h"
+#include "nova2/io.h"
 #include "nova2/os.h"
 
 using namespace nova2;
@@ -1043,7 +1045,248 @@ void test_killer_draw() {
     CHECK(n.picks > 3000 && n.none > 0 && n.started > 500 && n.ended > 400 && n.top > 20 && n.checks == 80);
 }
 
+// The limit on the threads one program may have (os.thread_limits, a
+// place's OsSettings::thread_limit; 9.6, design-thread-limit-2026-11-25.md).
+// At the limit a SPAWN that would start a thread of the caller's program
+// fails as any SPAWN fails, at the same cost, and nothing else changes; a
+// birth at the limit works; 0 is no limit; a limit of 1 leaves a program
+// its first thread only; and a program over the limit (a world saved
+// without it, loaded under it) keeps its threads but can't add one until
+// it is under.
+void test_thread_limit() {
+    const u8 loop[2] = {encode(kJmp, kImm), 0};
+    OsSettings three;
+    three.thread_limit = 3;
+    Rig g(256, false, 16384, DeviceKind::e_core, &three);
+    const u32 code = g.place(loop, 2, 0, 2, 64);
+    const u32 me = g.cores[0].x.holder;
+    g.os.clear_facts();
+    CHECK(g.sys(0, kSpawn, code, 1) != 0 && g.sys(0, kSpawn, code, 2) != 0 && g.os.program(me).threads == 3);
+    CHECK(g.os.spawns_thread == 2 && g.os.spawns_thread_ok == 2 && g.os.spawns_limited == 0);
+    // A SPAWN that fails today, at an address it doesn't hold: its cost.
+    Regs& r = g.cores[0].x.r;
+    r.a = 0;
+    const CallOutcome missed = g.os.call(0, kSpawn, r.ip);
+    // At the limit, into its own code: refused.
+    Array<u8> bytes;
+    bytes.assign(g.m.bytes(), g.m.size());
+    const u32 free_before = g.m.free_bytes(), threads_before = g.os.live_threads();
+    const u32 thread_top = g.os.thread_top();
+    r.a = code;
+    r.b = 7;
+    r.c = 11;
+    r.d = 13;
+    const CallOutcome refused = g.os.call(0, kSpawn, r.ip);
+    CHECK(r.a == 0 && r.b == 7 && r.c == 11 && r.d == 13);
+    CHECK(refused.cost16 == missed.cost16 && refused.stays == missed.stays && refused.stays);
+    CHECK(memcmp(bytes.data(), g.m.bytes(), bytes.size()) == 0 && g.m.free_bytes() == free_before);
+    CHECK(g.os.live_threads() == threads_before && g.os.thread_top() == thread_top && g.os.program(me).threads == 3);
+    CHECK(g.os.births.size() == 0 && g.os.live_programs() == 1);
+    CHECK(g.os.spawns_thread == 3 && g.os.spawns_thread_ok == 2 && g.os.spawns_limited == 1);
+    // Into a live thread's stack (os.stack_held) too.
+    const u32 mine = g.os.thread(g.cores[0].thread - 1).stack;
+    CHECK(g.sys(0, kSpawn, mine + 30, 0) == 0 && g.os.spawns_limited == 2 && g.os.program(me).threads == 3);
+    // A birth at the limit works, and the child may start threads to the limit.
+    const u32 gift = g.sys(0, kAlloc, 30, 1, 0);
+    const u32 child_id = g.sys(0, kSpawn, gift + 3, 9);
+    CHECK(gift != 0 && child_id != 0 && g.os.births.size() == 1 && g.os.live_programs() == 2);
+    CHECK(g.os.program(me).threads == 3 && g.os.spawns_program_ok == 1 && g.os.spawns_limited == 2);
+    const u32 child = g.os.thread(g.index_of(child_id)).program;
+    CHECK(child != me && g.os.program(child).threads == 1);
+    g.os.put_on(g.index_of(child_id), 1);
+    CHECK(g.sys(1, kSpawn, gift, 0) != 0 && g.sys(1, kSpawn, gift, 0) != 0 && g.os.program(child).threads == 3);
+    CHECK(g.sys(1, kSpawn, gift, 0) == 0 && g.os.program(child).threads == 3 && g.os.spawns_limited == 3);
+    // One of its threads ends: under the limit, it may start one again.
+    u32 other = ~0u;
+    for (u32 t = 0; t < g.os.thread_top(); ++t)
+        if (g.os.thread(t).state == ThreadState::ready && g.os.thread(t).program == me)
+            other = t;
+    CHECK(other != ~0u);
+    g.os.end_thread(other, DeathCause::exit);
+    CHECK(g.os.program(me).threads == 2 && g.sys(0, kSpawn, code, 0) != 0 && g.os.program(me).threads == 3);
+    TextBuf why;
+    CHECK(g.m.check(&why) && g.os.check(&why));
+
+    // 0 is no limit: 40 threads of one program, none refused.
+    Rig none;
+    const u32 code0 = none.place(loop, 2, 0, 2, 64);
+    u32 started = 0;
+    for (u32 k = 0; k < 40; ++k)
+        started += none.sys(0, kSpawn, code0, k) != 0 ? 1 : 0;
+    CHECK(started == 40 && none.os.program(none.cores[0].x.holder).threads == 41 && none.os.spawns_limited == 0);
+
+    // A limit of 1: a program has its first thread only, and births still work.
+    OsSettings one;
+    one.thread_limit = 1;
+    Rig o(256, false, 16384, DeviceKind::e_core, &one);
+    const u32 code1 = o.place(loop, 2, 0, 2, 64);
+    const u32 me1 = o.cores[0].x.holder;
+    o.os.clear_facts();
+    const u32 stack1 = o.os.thread(o.cores[0].thread - 1).stack;
+    CHECK(o.sys(0, kSpawn, code1, 0) == 0 && o.sys(0, kSpawn, stack1 + 30, 0) == 0);
+    CHECK(o.os.program(me1).threads == 1 && o.os.spawns_limited == 2 && o.os.spawns_thread_ok == 0);
+    const u32 gift1 = o.sys(0, kAlloc, 30, 1, 0);
+    const u32 born = o.sys(0, kSpawn, gift1 + 3, 0);
+    CHECK(born != 0 && o.os.births.size() == 1 && o.os.live_programs() == 2);
+    o.os.put_on(o.index_of(born), 1);
+    CHECK(o.sys(1, kSpawn, gift1, 0) == 0 && o.os.spawns_limited == 3);
+
+    // Over the limit: five threads saved with no limit, loaded under a limit
+    // of 2. It keeps all five, and can't add one until it is under 2.
+    Rig before;
+    const u32 code5 = before.place(loop, 2, 0, 2, 64);
+    const u32 me5 = before.cores[0].x.holder;
+    for (u32 k = 0; k < 4; ++k)
+        CHECK(before.sys(0, kSpawn, code5, k) != 0);
+    CHECK(before.os.program(me5).threads == 5);
+    before.os.take_off(0, ThreadState::ready);
+    ByteWriter saved;
+    {
+        Archive ar(&saved);
+        before.m.serialize(ar);
+        before.os.serialize(ar);
+        CHECK(ar.ok());
+    }
+    OsSettings two;
+    two.thread_limit = 2;
+    Rig after(256, false, 16384, DeviceKind::e_core, &two);
+    {
+        ByteReader in(saved.data(), saved.size());
+        Archive ar(&in);
+        after.m.serialize(ar);
+        after.os.serialize(ar);
+        CHECK(ar.ok() && in.remaining() == 0);
+    }
+    CHECK(after.os.program(me5).threads == 5 && after.os.check(&why));
+    u32 ready[5];
+    u32 n = 0;
+    for (u32 t = 0; t < after.os.thread_top() && n < 5; ++t)
+        if (after.os.thread(t).state == ThreadState::ready && after.os.thread(t).program == me5)
+            ready[n++] = t;
+    CHECK(n == 5);
+    after.os.put_on(ready[0], 0);
+    CHECK(after.sys(0, kSpawn, code5, 0) == 0 && after.os.program(me5).threads == 5);
+    for (u32 k = 1; k < 4; ++k)
+        after.os.end_thread(ready[k], DeathCause::exit);
+    CHECK(after.os.program(me5).threads == 2 && after.sys(0, kSpawn, code5, 0) == 0); // at it: still refused
+    after.os.end_thread(ready[4], DeathCause::exit);
+    CHECK(after.os.program(me5).threads == 1 && after.sys(0, kSpawn, code5, 0) != 0); // under it
+    CHECK(after.os.program(me5).threads == 2 && after.os.spawns_limited == 2);
+    CHECK(after.m.check(&why) && after.os.check(&why));
+}
+
+// The room for the barrier's old bytes (2026-11-25): a backlog of DWRITEs
+// left while the disk was cut out is served in one barrier, whose room is
+// made once for exactly the writes' old bytes; the next barrier, needing far
+// less, gives it back; and a place writing a disk's worth or less keeps its
+// room from one barrier to the next.
+void test_disk_room() {
+    static Memory m;
+    static Core cores[2];
+    static PlaceEnv env;
+    static Os os;
+    constexpr u32 kDisk = 1024, kWriters = 8;
+    static const MemDeviceSpec dev[] = {{16384, 4 * 16, 900}};
+    MemorySpec ms;
+    ms.page_size = 256;
+    ms.region_size = 256;
+    ms.devices = dev;
+    ms.device_count = 1;
+    CHECK(m.init(ms, nullptr));
+    cores[0].kind = DeviceKind::p_core;
+    cores[1].kind = DeviceKind::e_core;
+    env.tick = 100;
+    env.disk_size = kDisk;
+    SenseDevice d;
+    d.kind = DeviceKind::p_core;
+    d.speed = 25000;
+    d.threshold_mv = 800;
+    env.devices.push(d);
+    d.kind = DeviceKind::e_core;
+    env.devices.push(d);
+    d.kind = DeviceKind::memory;
+    d.speed = 4;
+    d.threshold_mv = 600;
+    env.devices.push(d);
+    d.kind = DeviceKind::disk;
+    d.speed = 900;
+    d.threshold_mv = 700;
+    d.size = kDisk;
+    env.devices.push(d);
+    TextBuf why;
+    CHECK(os.init(&m, cores, 2, &env, OsSettings(), &why));
+    const u8 loop[2] = {encode(kJmp, kImm), 0};
+    const u32 code = m.alloc(RUN, 64, 2, 0);
+    CHECK(code != 0);
+    memcpy(m.bytes() + code, loop, sizeof loop);
+    const u32 id = os.place_by_hand(RUN, code, code, 0);
+    u32 first = ~0u;
+    for (u32 t = 0; t < os.thread_capacity(); ++t)
+        if (os.thread(t).state != ThreadState::free && os.thread(t).id == id)
+            first = t;
+    os.put_on(first, 0);
+    Regs& r = cores[0].x.r;
+    r.a = kDisk;
+    r.b = r.c = 0;
+    os.call(0, kAlloc, r.ip);
+    const u32 buf = r.a;
+    CHECK(buf != 0);
+    for (u32 i = 0; i < kDisk; ++i)
+        m.bytes()[buf + i] = static_cast<u8>(i * 7 + 1);
+    for (u32 k = 1; k < kWriters; ++k) {
+        r.a = code;
+        r.b = k;
+        os.call(0, kSpawn, r.ip);
+        CHECK(r.a != 0);
+    }
+    // Every thread asks to write the whole disk while it's cut out.
+    os.set_disk_on(false);
+    u32 asked = 0;
+    for (u32 k = 0; k <= os.thread_top(); ++k) {
+        const u32 t = k == 0 ? first : k - 1; // the one on the core first
+        if (k > 0 && (t == first || os.thread(t).state != ThreadState::ready))
+            continue;
+        if (k > 0)
+            os.put_on(t, 0);
+        r.a = 0;
+        r.b = buf;
+        r.c = kDisk;
+        os.call(0, kDwrite, r.ip);
+        asked += os.thread(t).state == ThreadState::waiting_disk ? 1 : 0;
+    }
+    CHECK(asked == kWriters);
+    os.barrier();
+    CHECK(os.pending_disk() == kWriters && os.flight_room() == 0);
+    // Back on: one barrier serves them all, its room just their old bytes.
+    os.set_disk_on(true);
+    os.barrier();
+    CHECK(os.calls_ok[kDwrite] == kWriters && os.in_flight_bytes() == kWriters * kDisk);
+    CHECK(os.flight_room() == kWriters * kDisk);
+    CHECK(memcmp(os.disk(), m.bytes() + buf, kDisk) == 0);
+    // The next barrier needs none of it, and gives it back.
+    os.settle_disk();
+    os.barrier();
+    CHECK(os.flight_room() == 0);
+    // One write of the whole disk, then barriers with nothing to serve: the
+    // place keeps the room for it.
+    u32 t = 0;
+    while (os.thread(t).state != ThreadState::ready)
+        ++t;
+    os.put_on(t, 0);
+    r.a = 0;
+    r.b = buf;
+    r.c = kDisk;
+    os.call(0, kDwrite, r.ip);
+    os.barrier();
+    CHECK(os.in_flight_bytes() == kDisk && os.flight_room() == kDisk);
+    os.settle_disk();
+    os.barrier();
+    os.barrier();
+    CHECK(os.flight_room() == kDisk);
+}
+
 void suite_os() {
+    test_thread_limit();
     test_lax_replicator();
     test_strict_replicator();
     test_out_of_memory_death();
@@ -1059,4 +1302,5 @@ void suite_os() {
     test_idle_runs();
     test_new_thread_registers();
     test_alloc_result_in_d();
+    test_disk_room();
 }

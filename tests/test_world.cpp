@@ -6,6 +6,8 @@
 #include <cstring>
 
 #include "check.h"
+#include "nova2/purposes.h"
+#include "nova2/rng.h"
 #include "nova2/snapshot.h"
 #include "nova2/world.h"
 
@@ -352,6 +354,204 @@ void test_seeds_and_constraints() {
     CHECK(cf.parse("world.places = 1\nregion.step = 16\n", &pe));
     TextBuf fwhy;
     CHECK(!f.init(cf, &fwhy) && strstr(fwhy.c_str(), "region.step") != nullptr);
+    // The thread limits (9.6, 2026-11-25): whole numbers, up to 8 of them.
+    const char* const bad[] = {"1 x", "1 2 3 4 5 6 7 8 9", "4294967296", "-1"};
+    for (u32 k = 0; k < 4; ++k) {
+        World t;
+        Config ct;
+        TextBuf line;
+        line.append("world.places = 1\nos.thread_limits = ");
+        line.append(bad[k]);
+        line.append("\n");
+        CHECK(ct.parse(line.view(), &pe));
+        TextBuf twhy;
+        CHECK(!t.init(ct, &twhy) && strstr(ct.value_error(), "os.thread_limits") != nullptr);
+    }
+}
+
+// A world from these settings alone (no test programs placed).
+bool make(World& w, Config& cfg, const char* a, const char* b) {
+    Config::ParseError pe;
+    TextBuf text;
+    text.append(a);
+    text.append(b);
+    if (!cfg.parse(text.view(), &pe))
+        return false;
+    TextBuf why;
+    const bool ok = w.init(cfg, &why);
+    if (!ok)
+        fprintf(stderr, "  world: %s %s\n", why.c_str(), cfg.value_error());
+    return ok;
+}
+
+// What one place's values say but its thread limit, with its point: as
+// the world started.
+bool same_but_limit(const World& a, const World& b, u32 i) {
+    const PlaceHw& x = a.dealt(i);
+    const PlaceHw& y = b.dealt(i);
+    return x.cores == y.cores && memcmp(x.e, y.e, kMaxCores) == 0 && x.devices == y.devices &&
+           memcmp(x.latency, y.latency, sizeof x.latency) == 0 && x.page_size == y.page_size &&
+           x.strict == y.strict && x.cooler == y.cooler && x.visits == y.visits && a.map().x(i) == b.map().x(i) &&
+           a.map().y(i) == b.map().y(i);
+}
+
+// The limits on a program's threads, dealt (os.thread_limits; 9.6,
+// design-thread-limit-2026-11-25.md): with a list of several, everything
+// else about the world's start is as it is without the list (the map,
+// every place's hardware, page size, strict or lax and cooling, their
+// memory's static, the sources: the world's hash), since the limit draws
+// from a stream of its own and is dealt by a field of its own; each place
+// has a limit from the list, the field's order its order (no limit last);
+// and with no fields, each place draws its own. `nova2 places` lists what
+// draw_places deals, the same as the world's.
+void test_thread_limit_deal() {
+    const char* const base = "world.places = 48\nmemory.size = 32768\ndisk.size = 65536\nhw.cores.max = 4\n";
+    World a, b;
+    Config ca, cb;
+    CHECK(make(a, ca, base, ""));
+    CHECK(make(b, cb, base, "os.thread_limits = 1 4 32 0\n"));
+    CHECK_EQ_U64(a.hash(), b.hash());
+    CHECK(a.map().link_count() == b.map().link_count() && a.map().power_link_count() == b.map().power_link_count());
+    const u32 values[4] = {1, 4, 32, 0};
+    u32 by[4] = {};
+    bool same = true, listed = true, set = true;
+    for (u32 i = 0; i < a.place_count(); ++i) {
+        same = same && same_but_limit(a, b, i);
+        set = set && a.dealt(i).thread_limit == 0 && a.place(i).os.settings().thread_limit == 0 &&
+              b.place(i).os.settings().thread_limit == b.dealt(i).thread_limit;
+        bool found = false;
+        for (u32 k = 0; k < 4; ++k)
+            if (b.dealt(i).thread_limit == values[k]) {
+                ++by[k];
+                found = true;
+            }
+        listed = listed && found;
+    }
+    CHECK(same && listed && set);
+    CHECK(by[0] > 0 && by[1] > 0 && by[2] > 0 && by[3] > 0); // each somewhere, with this seed
+    printf("  thread limits dealt to 48 places: %u with 1, %u with 4, %u with 32, %u with none\n", by[0], by[1],
+           by[2], by[3]);
+    // By the field: in its order, lowest first, the limits rise, no limit last.
+    Array<double> v;
+    b.map().field_values(b.seed(), Field::threads, b.map_settings(), &v);
+    Array<u64> keys;
+    for (u32 i = 0; i < b.place_count(); ++i)
+        keys.push((order_key(v[i]) & ~0xFFFFFull) | i);
+    sort_u64(keys.data(), keys.size());
+    u64 last = 0;
+    bool rising = true;
+    for (usize k = 0; k < keys.size(); ++k) {
+        const u32 lim = b.dealt(static_cast<u32>(keys[k] & 0xFFFFF)).thread_limit;
+        const u64 most = lim ? lim : 0x100000000ull;
+        rising = rising && most >= last;
+        last = most;
+    }
+    CHECK(rising);
+    // What `nova2 places` lists is the world's deal.
+    Array<PlaceHw> hw;
+    draw_places(b.settings(), b.map_settings(), b.map(), &hw);
+    bool listing = hw.size() == b.place_count();
+    for (u32 i = 0; listing && i < b.place_count(); ++i)
+        listing = hw[i].thread_limit == b.dealt(i).thread_limit && hw[i].page_size == b.dealt(i).page_size &&
+                  hw[i].strict == b.dealt(i).strict && hw[i].cores == b.dealt(i).cores;
+    CHECK(listing);
+    // With no fields, each place draws its own, from its stream.
+    World c, d;
+    Config cc, cd;
+    CHECK(make(c, cc, base, "map.fields = false\n"));
+    CHECK(make(d, cd, base, "map.fields = false\nos.thread_limits = 1 4 32 0\n"));
+    CHECK_EQ_U64(c.hash(), d.hash());
+    bool own = true;
+    for (u32 i = 0; i < d.place_count(); ++i) {
+        Rng r(d.seed(), i, kPurposeThreadLimit, Rng::kInitTick);
+        own = own && same_but_limit(c, d, i) && d.dealt(i).thread_limit == values[r.below(4)];
+    }
+    CHECK(own);
+}
+
+// A program that starts threads of itself over and over (R7: a test's):
+// MOV C (its start, A.3); SYS # SPAWN there; JMP # -3.
+const u8 kSpawner[5] = {encode(kMov, kC), encode(kSys, kImm), kSpawn, encode(kJmp, kImm), static_cast<u8>(-3)};
+
+void place_spawner(Place& p) {
+    const u32 at = p.mem.alloc(1, 64, 1, 0); // held by core 0's idle run, executable
+    CHECK(at != 0);
+    memcpy(p.mem.bytes() + at, kSpawner, sizeof kSpawner);
+    CHECK(p.os.place_by_hand(1, at, at, 0) != 0);
+}
+
+// The default (os.thread_limits = 0): every place unlimited, and the world
+// as it was before the limit, tick by tick: the same hashes with no key,
+// with "0", and with a limit no program can reach (it never refuses, and
+// its test changes nothing else), in a world where programs start threads
+// of themselves. With a limit of 8 they are refused, and no program has
+// more.
+void test_thread_limit_default() {
+    const char* const extra[4] = {"", "os.thread_limits = 0\n", "os.thread_limits = 1000000\n",
+                                  "os.thread_limits = 8\n"};
+    const u32 limit[4] = {0, 0, 1000000, 8};
+    const char* const label[4] = {"unset", "0", "1000000", "8"};
+    u64 h[4][3] = {};
+    u64 sizes[4] = {};
+    for (u32 k = 0; k < 4; ++k) {
+        World w;
+        Config cfg;
+        CHECK(build(w, cfg, extra[k]));
+        CHECK(thread_limits_on(w.settings()) == (k >= 2));
+        for (u32 i = 0; i < w.place_count(); ++i)
+            place_spawner(w.place(i));
+        w.start_threads(4);
+        u32 n = 0;
+        for (u32 tick = 1; tick <= 40; ++tick) {
+            w.tick();
+            if (tick == 10 || tick == 20 || tick == 40)
+                h[k][n++] = w.hash();
+        }
+        u64 refused = 0, asked = 0, ok = 0;
+        u32 most = 0;
+        for (u32 i = 0; i < w.place_count(); ++i) {
+            const Os& os = w.place(i).os;
+            refused += os.spawns_limited;
+            asked += os.spawns_thread;
+            ok += os.spawns_thread_ok;
+            CHECK(os.settings().thread_limit == limit[k]);
+            for (u32 q = 0; q < os.program_capacity(); ++q) {
+                const Program& pr = os.program(kFirstProgramHolder + q);
+                if (pr.alive && pr.threads > most)
+                    most = pr.threads;
+            }
+            TextBuf why;
+            CHECK(os.check(&why));
+        }
+        CHECK(asked > 100 && (k == 3 ? refused > 0 && most <= 8 : refused == 0 && most > 8));
+        printf("  thread limit %s: %llu thread SPAWNs in 40 ticks, %llu started, %llu refused; at most %u threads "
+               "a program\n",
+               label[k], static_cast<unsigned long long>(asked),
+               static_cast<unsigned long long>(ok), static_cast<unsigned long long>(refused), most);
+        // The counters: a place that refused nothing keeps a build's before
+        // the limit ("PLC;", no count more), and the refusals come back from
+        // a save.
+        ByteWriter snap, counters;
+        w.save(snap);
+        w.save_counters(counters);
+        sizes[k] = counters.size();
+        World b;
+        Config cfg2;
+        CHECK(build(b, cfg2, extra[k]));
+        ByteReader in(snap.data(), snap.size());
+        CHECK(b.load(in));
+        ByteReader cin(counters.data(), counters.size());
+        CHECK(b.load_counters(cin) && cin.remaining() == 0);
+        for (u32 i = 0; i < w.place_count(); ++i)
+            CHECK_EQ_U64(b.place(i).os.spawns_limited, w.place(i).os.spawns_limited);
+    }
+    for (u32 j = 0; j < 3; ++j) {
+        CHECK_EQ_U64(h[0][j], h[1][j]);
+        CHECK_EQ_U64(h[0][j], h[2][j]);
+    }
+    CHECK_EQ_U64(sizes[1], sizes[0]);
+    CHECK_EQ_U64(sizes[2], sizes[0]); // a limit that refused nothing writes no count
+    CHECK(h[3][2] != h[0][2]); // the limit acts
 }
 
 } // namespace
@@ -364,4 +564,6 @@ void suite_world() {
     test_place_snapshot();
     test_compact_save();
     test_seeds_and_constraints();
+    test_thread_limit_deal();
+    test_thread_limit_default();
 }

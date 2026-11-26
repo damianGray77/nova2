@@ -344,10 +344,12 @@ int trace_snapshot(const TraceOptions& t) {
             os.take_off(c, ThreadState::ready);
         p.cores[c].idle_run = false;
     }
-    printf("seed %llu, tick %llu, place %u: %s, %u-byte pages; memory %u bytes, %u free (%.1f%%); %u programs, %u "
+    char lim[40];
+    thread_limit_text(w->settings(), os.settings().thread_limit, lim, sizeof lim); // "" with no limits (9.6)
+    printf("seed %llu, tick %llu, place %u: %s, %u-byte pages%s; memory %u bytes, %u free (%.1f%%); %u programs, %u "
            "threads\n",
            static_cast<unsigned long long>(h.seed), static_cast<unsigned long long>(h.tick), place,
-           m.strict() ? "strict" : "lax", m.page_size(), m.size(), m.free_bytes(),
+           m.strict() ? "strict" : "lax", m.page_size(), lim, m.size(), m.free_bytes(),
            100.0 * m.free_bytes() / (m.size() ? m.size() : 1), os.live_programs(), os.live_threads());
 
     Trace tr;
@@ -540,8 +542,10 @@ int cmd_trace(Config& cfg, const TraceOptions& t) {
         delete p;
         return 2;
     }
-    printf("trace: %u bytes on a %s place with %u-byte pages; slots %u\n", static_cast<u32>(genome.size()),
-           t.strict ? "strict" : "lax", t.page, os.settings().slot_count);
+    char lim[40];
+    thread_limit_text(ws, os.settings().thread_limit, lim, sizeof lim); // --set os.thread_limits=N (9.6)
+    printf("trace: %u bytes on a %s place with %u-byte pages%s; slots %u\n", static_cast<u32>(genome.size()),
+           t.strict ? "strict" : "lax", t.page, lim, os.settings().slot_count);
 
     Trace tr;
     tr.p = p;

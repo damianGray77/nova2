@@ -210,9 +210,13 @@ void Place::counters(Archive& ar) {
     const u32 kPlc9 = 0x504C4339;                     // "PLC9": rowhammer (step 8)
     const u32 kPlc10 = 0x504C433A;                    // "PLC:": the current's landings (step 9)
     const u32 kPlc11 = 0x504C433B;                    // "PLC;": the killer's and the watchdog's (step 10)
-    u32 version = kPlc11;
+    const u32 kPlc12 = 0x504C433C; // "PLC<": the SPAWNs refused by the thread limit (2026-11-25)
+    // A place whose limit never refused a SPAWN is written as "PLC;", as a
+    // build before the limit wrote it, so a world with no limit saves the
+    // same bytes; "PLC<" only when there is a refusal to keep.
+    u32 version = os.spawns_limited ? kPlc12 : kPlc11;
     ar.u32_(version);
-    if (version < kPlc1 || version > kPlc11) {
+    if (version < kPlc1 || version > kPlc12) {
         ar.fail();
         return;
     }
@@ -344,6 +348,10 @@ void Place::counters(Archive& ar) {
     } else if (ar.loading()) {
         os.kills = os.killed_bytes = os.killed_threads = os.watchdog_faults = os.watchdog_handled = 0;
     }
+    if (version >= kPlc12)
+        ar.u64_(os.spawns_limited);
+    else if (ar.loading())
+        os.spawns_limited = 0; // a save from before the limit: none refused
 }
 
 void World::save_counters(ByteWriter& out) {

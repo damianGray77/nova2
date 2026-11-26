@@ -104,6 +104,7 @@ NOVA2_MEMBER("field", "density", "Density", "Map")
 NOVA2_MEMBER("field", "resistance", "Link resistance", "Map")
 NOVA2_MEMBER("field", "cooling", "Cooling", "Map")
 NOVA2_MEMBER("field", "coolers", "Cooling devices", "Map")
+NOVA2_MEMBER("field", "threads", "Thread limit", "Map")
 // The power map (6.1, 6.2; build-plan-gate4.md step 2). Lengths here are in
 // average link lengths.
 NOVA2_NUMBER("map.resistance.min", 0.5, 0.001, 1000, 0, "Map", "Least resistance", "",
@@ -237,7 +238,9 @@ NOVA2_TEXT("os.page_sizes", "64 256 1024", 0, "OS and calls", "Page sizes", "",
            "The page sizes a place's OS may have, powers of two, drawn equally often (9.6).")
 NOVA2_NUMBER("os.strict_share", 0.5, 0, 1, 0, "OS and calls", "Strict share", "",
              "The chance that a place's OS is strict, with no page writable and executable at once (9.3).")
-NOVA2_TEXT("os.slots", "0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 0 3", 0, "OS and calls", "Call numbering", "",
+NOVA2_TEXT("os.thread_limits", "0", 0, "OS and calls", "Thread limits", "",
+           "The limits on the threads one program may have, one drawn for each place; 0 is no limit.")
+NOVA2_TEXT("os.slots","0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 0 3", 0, "OS and calls", "Call numbering", "",
            "SYS s picks slot s mod the slot count, and each number here names a slot's call (9.2).")
 NOVA2_WHOLE("os.stack", 64, 28, 1048576, 0, "OS and calls", "Stack per thread", "",
             "Bytes of stack a thread gets at SPAWN. The first 24 hold its saved registers (A.3).")

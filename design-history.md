@@ -6820,3 +6820,60 @@ per-place columns this way.
     offer, to add it only if the runs showed respawns.
   - In `design.md` 13.1 and 7.8, and `build-plan-gate5.md` gap 7 and
     step 11.
+- 2026-11-25: **A thread limit that varies by place, off by default and
+  on trial** (Damian, asked to sign off the six decisions of
+  `design-thread-limit-2026-11-25.md` as leaned: "Yes, as leaned").
+  - **What led to it.** `runs/open-5` at tick 22.5 million held 3.3
+    million threads, about 900 a core and 23 a program, and a thread's
+    turn came about every 230 ticks. A few programs held most of them:
+    in place 0, 5.6% of the programs held 75% of the threads. By 9.5 a
+    core is shared by thread and a thread costs 64 bytes and a SPAWN, so
+    starting threads is what pays. The killer of 2026-11-20 ends one
+    program a crowded place a day, which is too slow against hundreds
+    of flooders a place.
+  - **What was weighed.** A share of cores by program: Damian, on the
+    forecast that copying fast would be all that pays and genomes would
+    shrink, "that doesn't sound hopeful to me". His own idea, 32 threads
+    a core: it limits the place, so a full place refuses births too. He
+    kept the shared cores of 2026-11-10 ("I kinda like the virtual
+    threads idea (as I agreed to)") and asked for a balance: "there has
+    to be a mechanic we can use that should balance things to ensure
+    that there is no one king". On the limit by place: "I like your
+    suggestion and I think it's better than mine."
+  - **What holds now.** Each place's OS has a limit on the threads one
+    program may have, a third OS value beside the page size and strict
+    or lax, dealt by a field of its own. At the limit a SPAWN that would
+    start a thread fails; births are untouched and nobody is ended.
+    Programs can't read the limit. The default is no limit at every
+    place, so every world so far is unchanged.
+  - **The flip rate.** `runs/open-5` runs `noise.cosmic` at 1e-6, 1,000
+    times the default. From its report, ticks 3.67 to 4.62 million, 55%
+    of the threads started were ended by a flip in their saved state and
+    46% of program deaths were memory failing. Damian: "The point was
+    supposed to be allowing mutation, not actively culling". A lower
+    rate alone would feed the flood, so it is tried only with the limit.
+    No new default is agreed.
+  - **The pilot.** Two runs of 5 million ticks on open-5's settings and
+    seed with limits of 1, 4, 32 and none, a quarter of the places each:
+    one at open-5's flip rate, one at a tenth of it. One at a time
+    beside open-5. The next open run's settings are decided from its
+    report, not before.
+  - **Changed the same evening.** Damian: "let's keep OpenFive running
+    in the background while you make the changes for the threads. I
+    guess that'll be for Open6, and once that is done, we can switch
+    over to Open6 and stop OpenFive." The first pilot's settings are
+    what open-6 would be, so running it and then open-6 would replay the
+    same 5 million ticks. Offered open-6 itself as the first pilot, he
+    said: "Your recommendation sounds good to me." So `runs/open-6`
+    starts with the limits, open-ended, on one build from tick 0;
+    open-5 stops then; the second pilot (`runs/limit-b`, a tenth of the
+    flip rate) runs beside open-6 for 5 million ticks; a report at 5
+    million ticks reads both by kind of place; and if it says the
+    limits or the rate should change, open-6 starts again.
+  - **The deal on this seed:** the draw gives 28 places a limit of 1, 32
+    a limit of 4, 20 a limit of 32 and 20 none, the rest of each place
+    as in open-5.
+  - **Not tested:** that the flips cap genome length (the arithmetic
+    fits: a 27-byte genome takes about one flip a lifetime); that life
+    will differ by kind of place.
+  - In `design.md` 9.5 and 9.6, and `design-thread-limit-2026-11-25.md`.

@@ -54,6 +54,7 @@ namespace nova2 {
 
 inline constexpr u32 kMaxCores = 64;
 inline constexpr u32 kMaxPageSizes = 8;
+inline constexpr u32 kMaxThreadLimits = 8; // os.thread_limits: as many as page sizes
 
 // Everything the world's settings say, read once (design.md 2: fixed for the run).
 struct WorldSettings {
@@ -87,11 +88,25 @@ struct WorldSettings {
     RegionSettings region;
     NoiseSettings noise;
     CostTable p_costs = default_p_costs(), e_costs = default_e_costs();
+    // The third OS value (9.6; design-thread-limit-2026-11-25.md): the limits
+    // on the threads one program may have, one drawn for each place (0: no
+    // limit). Last, moving no other member.
+    u32 thread_limits[kMaxThreadLimits] = {0};
+    u32 thread_limit_count = 1;
 };
 
 // Reads the settings through the registry. Bad values and broken
 // constraints are reported through cfg.fail (cfg.ok() then says false).
 void read_world_settings(Config& cfg, WorldSettings* ws);
+
+// Whether os.thread_limits limits any place (it lists anything but 0).
+// Reports and views name a place's limit only then, so a world without
+// one reads as it did before the limit (2026-11-25).
+bool thread_limits_on(const WorldSettings& ws);
+// A place's limit for a report, after its page size: ", 4 threads a
+// program", ", 1 thread a program" or ", no thread limit"; "" when the
+// world's limits are off.
+void thread_limit_text(const WorldSettings& ws, u32 limit, char* out, usize size);
 
 // A place's hardware and OS values (7.3, 9.6): drawn for each place from the
 // ranges, then, on a map with fields, dealt out to the places by the fields
@@ -105,11 +120,13 @@ struct PlaceHw {
     bool strict = false;
     bool cooler = false; // it has a cooling device (7.7; the world deals them by the coolers' field)
     double visits = 1;   // its mean visit interval over the world's (7.8's density tie; the world works it out)
+    u32 thread_limit = 0; // the threads one program may have (9.6; 0: no limit)
 };
 
 // Place `id`'s draws, as gates 1 and 2 make them: the cores' count and kinds,
 // the memory devices' count and latencies (kPurposeHardware), then the page
-// size and strict or lax (kPurposeOs).
+// size and strict or lax (kPurposeOs), and the limit on a program's threads
+// (kPurposeThreadLimit).
 void draw_hardware(const WorldSettings& ws, u32 id, PlaceHw* hw);
 // ... from a seed of its own (a respawned place's, with no fields: 7.8).
 void draw_hardware(const WorldSettings& ws, u32 id, PlaceHw* hw, u64 seed);

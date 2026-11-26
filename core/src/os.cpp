@@ -161,6 +161,7 @@ bool Os::init(Memory* mem, Core* cores, u32 core_count, PlaceEnv* env, const OsS
     memset(calls_ok, 0, sizeof calls_ok);
     sends_other = sends_other_ok = 0;
     spawns_thread = spawns_thread_ok = spawns_program = spawns_program_ok = 0;
+    spawns_limited = 0;
     crowded_for_ = 0;
     kills = killed_bytes = killed_threads = 0;
     watchdog_faults = watchdog_handled = 0;
@@ -678,11 +679,28 @@ void Os::cancel_disk(u32 core) {
     cores_[core].disk_wait = false;
 }
 
+// The room for a barrier's old bytes (flight_old_): what this one's writes
+// need, made at once (no doubling, no copy of a block it leaves); and given
+// back after a barrier that needed far more than this one does, so that a
+// burst (a backlog served as the disk comes back, 7.6) doesn't hold its room
+// for the rest of the run. Room isn't state: nothing saves or draws from it.
+void Os::fit_flight_room(u64 need) {
+    const u64 room = flight_old_.capacity();
+    const u64 keep = 2 * (need > disk_size() ? need : disk_size()); // two whole-disk writes, at least
+    if (room >= need && room <= keep)
+        return;
+    flight_old_ = Array<u8>();
+    if (need)
+        flight_old_.reserve(static_cast<usize>(need));
+}
+
 void Os::barrier() {
     flight_.clear();
     flight_old_.clear();
-    if (!disk_on_)
+    if (!disk_on_) {
+        fit_flight_room(0);
         return; // the disk is cut out: DREAD and DWRITE wait for it (7.6)
+    }
     // Core order, then request order (9.3). Few requests: insertion sort.
     for (u32 i = 1; i < ops_.size(); ++i) {
         const DiskOp v = ops_[i];
@@ -693,21 +711,29 @@ void Os::barrier() {
         }
         ops_[j] = v;
     }
+    // Access is checked again now: each call stops at the first page it can't
+    // use. Every count is found before any request is served, nothing a
+    // request does changing another's access (it moves bytes, not pages or
+    // holders), so the room for the writes' old bytes is made once.
+    op_n_.resize(ops_.size());
+    u64 need = 0;
+    for (u32 i = 0; i < ops_.size(); ++i) {
+        const DiskOp& op = ops_[i];
+        op_n_[i] = 0;
+        if (!op.live || (op.thread && !still_waits(op)))
+            continue;
+        op_n_[i] = mem_->usable_prefix(op.addr, op.len, op.holder, op.write ? kRead : kWrite);
+        need += op.write ? op_n_[i] : 0;
+    }
+    fit_flight_room(need);
     u8* mem = mem_->bytes();
     for (u32 i = 0; i < ops_.size(); ++i) {
         const DiskOp& op = ops_[i];
-        if (!op.live)
+        // Asked again: a thread served above is ready now, should it have
+        // asked twice.
+        if (!op.live || (op.thread && !still_waits(op)))
             continue;
-        // A thread that ended while it waited (its saved state faded while the
-        // disk was out) asked for nothing any more: its program's holder may be
-        // another's by now.
-        if (op.thread) {
-            const Thread& th = threads_[op.thread - 1];
-            if (th.state != ThreadState::waiting_disk || th.id != op.thread_id)
-                continue;
-        }
-        // Access is checked again now: the call stops at the first page it can't use.
-        const u32 n = mem_->usable_prefix(op.addr, op.len, op.holder, op.write ? kRead : kWrite);
+        const u32 n = op_n_[i];
         if (n) { // in flight until the next tick's device states (7.6)
             Flight f{op.core, op.thread, op.thread_id, op.write, op.offset, n, 0, false, 0};
             if (op.write) {
@@ -749,6 +775,14 @@ void Os::barrier() {
     ops_.clear();
 }
 
+// A thread that ended while it waited (its saved state faded while the disk
+// was out) asked for nothing any more: its program's holder may be another's
+// by now.
+bool Os::still_waits(const DiskOp& op) const {
+    const Thread& th = threads_[op.thread - 1];
+    return th.state == ThreadState::waiting_disk && th.id == op.thread_id;
+}
+
 u64 Os::in_flight_bytes() const {
     u64 n = 0;
     for (usize i = 0; i < flight_.size(); ++i)
@@ -759,6 +793,10 @@ u64 Os::in_flight_bytes() const {
 void Os::tear(u64 at) {
     u8* mem = mem_->bytes();
     u64 end = in_flight_bytes();
+    // Each write's old bytes, walked back from flight_old_'s end as `end`
+    // walks back (2026-11-25): a u32 old_at wraps once one barrier's old
+    // bytes pass 4 GiB, and this doesn't.
+    u64 old_end = flight_old_.size();
     // From the last back: a later write over an earlier one is put back first,
     // so what's left is what the disk had done by the cut.
     for (usize i = flight_.size(); i-- > 0;) {
@@ -769,7 +807,8 @@ void Os::tear(u64 at) {
             break; // done before the cut, and so was everything before it
         const u32 done = at > start ? static_cast<u32>(at - start) : 0;
         if (f.write) {
-            memcpy(disk_.data() + f.offset + done, flight_old_.data() + f.old_at + done, f.n - done);
+            old_end -= f.n;
+            memcpy(disk_.data() + f.offset + done, flight_old_.data() + old_end + done, f.n - done);
             ++torn_writes;
             // Put back whole, it never landed in the boot block: the writer
             // before is the last again. (Its first byte is in the block, so any
@@ -1000,6 +1039,14 @@ u32 Os::spawn(u32 core, u32 addr, u32 value, u32 sys_ip) {
     }
     spawn_asked_ = own ? 1 : 2;
     if (own) {
+        // The place's limit on a program's threads (9.6, 2026-11-25): at it,
+        // or over it, the SPAWN fails as any SPAWN does, at the same cost.
+        // A program over it keeps its threads until they end.
+        if (s_.thread_limit && programs_[holder - kFirstProgramHolder].threads >= s_.thread_limit) {
+            spawn_miss_ = SpawnMiss::limit;
+            ++spawns_limited;
+            return 0;
+        }
         const u32 t = new_thread(holder, addr, value, device);
         return t == ~0u ? 0 : threads_[t].id;
     }

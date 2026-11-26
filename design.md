@@ -2098,6 +2098,7 @@ place.
   - If the OS set it by a rule, the rule would pick winners.
 - **The main lever is the number of threads.** More threads get a bigger
   share, but each costs a SPAWN and memory for its stack.
+  - Up to the place's thread limit, where it has one (9.6) [2026-11-25].
 - **A thread can be pinned to one kind of core** with SETCORE: any (the
   default), P only, or E only.
   - **The pin is strict.** A pinned thread waits in its kind's queue rather
@@ -2215,14 +2216,55 @@ place.
 - **What varies:**
   - the page size, from a short list;
   - the writable-and-executable rule, strict or lax (a lax place has no
-    no-execute bit, 9.3).
+    no-execute bit, 9.3);
+  - the thread limit, from a short list (below) [2026-11-25].
 
-  Programs can read both (SENSE, R25). Everything else is global, including
-  the turn length (one world setting) and call costs.
+  Programs can read the first two (SENSE, R25). Everything else is global,
+  including the turn length (one world setting) and call costs.
 - **Neighbours stay similar,** so a program can adapt to the OS around it.
   Nearby moves are safe, and far moves are a gamble.
 - **Large pages make sharing, and so parasitism, easy; small pages make it
   hard.**
+- **The thread limit [2026-11-25, Damian: "Yes, as leaned", on
+  `design-thread-limit-2026-11-25.md`; off by default, on trial].** Each
+  place's OS has a limit on the threads one program may have, from a short
+  list (`os.thread_limits`). A 0 in the list is no limit, and no limit is
+  under one.
+  - **The rule.** A SPAWN that would start a thread fails when the
+    caller's program already has as many live threads as its place's
+    limit. It fails as any SPAWN fails: nothing is started and nobody is
+    ended. A SPAWN that makes a new program is untouched.
+  - **A program over its place's limit,** however it came to be (a world
+    saved before the limit, say), keeps its threads until they end. It
+    can't start another until it is under.
+  - **Dealt as the page size is,** by a field of its own (7.3) and from
+    draws of its own, so adding it changes nothing else about a world.
+  - **Programs can't read it.** A program learns the limit when its SPAWN
+    fails, as a real one does.
+  - **The default is no limit at every place,** which is the world as it
+    was. It is first tried in `runs/open-6`: open-5's world with limits of
+    1, 4, 32 and none, about a quarter of the places each, and a second
+    run beside it at a tenth of the cosmic-ray rate. A report at 5 million
+    ticks decides whether the limits and the rate stay.
+  - **Why:** a core is shared by thread (9.5), and a thread costs 64 bytes
+    and a SPAWN, so a few programs start thousands. `runs/open-5` at tick
+    22.5 million had 3.3 million threads on about 3,600 cores, and in one
+    place 6% of the programs held 75% of the threads. Any one rule
+    everywhere crowns one way of living: starting threads with no limit,
+    copying fast with a limit of one. Places that differ leave room for
+    both (Damian: "there has to be a mechanic we can use that should
+    balance things to ensure that there is no one king").
+  - **It passes 9.1 as first written:** a fixed rule, the same for every
+    program in the place, about the asker only. The amendment of
+    2026-11-20 isn't used, and its choice isn't reversed.
+  - **Real anchor:** `ulimit -u` for a user and `pids.max` for a group of
+    processes, set by whoever runs the machine and different from machine
+    to machine. Linux's own default scales at 1,024 thread ids a CPU and
+    never under 8.
+  - Chosen over one limit everywhere, over a share of cores by program
+    (the same king as a limit of one, with the waiting lines rewritten),
+    and over a limit on a place's threads (a full place would refuse
+    births too, and the killer wouldn't see it).
 
 ### 9.7 Service costs (agreed; numbers tunable)
 

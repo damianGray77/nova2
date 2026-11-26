@@ -4,6 +4,7 @@
 //   nova2 resume <snapshot> [--set run.key=value]... [--save path]
 //   nova2 check <snapshot>...                    saved worlds through the engine's checks
 //   nova2 sizes <snapshot>...                    where the bytes of a save go, world or test, by part
+//   nova2 places [config] [--set key=value]...   each place's values as each seed starts (7.3, 9.6)
 //   nova2 origin [config] [--set key=value]...   the origin test (10.6)
 //   nova2 samples [config] [--set key=value]...  a run's samples as CSVs, from its records (origin.records)
 //   nova2 bench [config] [--set key=value]...    the first benchmark
@@ -43,6 +44,7 @@ void print_usage(FILE* out) {
             "  nova2 resume <snapshot> [--set run.key=value]... [--save path]\n"
             "  nova2 check <snapshot>...                    a saved world's places through the engine's checks\n"
             "  nova2 sizes <snapshot>...                    where the bytes of a save go, world or test, by part\n"
+            "  nova2 places [config] [--set key=value]...   each place's values as each seed starts, a line a place\n"
             "  nova2 origin [config] [--set key=value]...   the origin test\n"
             "  nova2 samples [config] [--set key=value]...  a run's samples as CSVs, from its records\n"
             "  nova2 genomes <records folder> <seed>        a seed's kept genomes read whole and checked\n"
@@ -683,6 +685,77 @@ int cmd_sizes(int argc, char** argv) {
     return 0;
 }
 
+// nova2 places: every place's values as each of a run's seeds sets them up
+// (7.3, 9.6; 2026-11-25), one line a place, from the settings alone: the
+// map, the draws and the deal, as World::init makes them, without building
+// the places (so a full world's settings cost no more than its map). The
+// seeds are world.seed and the next origin.seeds - 1, as the origin test
+// runs them. A respawned place draws its values again (7.8), so these are
+// the places as the world starts.
+int cmd_places(int argc, char** argv) {
+    Config cfg;
+    if (!settings_for(argc, argv, &cfg))
+        return 2;
+    const u64 first = key_u64(cfg, "world.seed");
+    const u32 seeds = key_u32(cfg, "origin.seeds");
+    for (u32 k = 0; k < seeds; ++k) {
+        char v[32];
+        snprintf(v, sizeof v, "%llu", static_cast<unsigned long long>(first + k));
+        cfg.set("world.seed", v);
+        WorldSettings ws;
+        MapSettings ms;
+        read_world_settings(cfg, &ws);
+        read_map_settings(cfg, &ms);
+        if (!cfg.ok()) {
+            fprintf(stderr, "nova2: %s\n", cfg.value_error());
+            return 2;
+        }
+        Map map;
+        TextBuf why;
+        if (!map.build(ws.seed, ws.places, ms, &why)) {
+            fprintf(stderr, "nova2: seed %s: %s\n", v, why.c_str());
+            return 2;
+        }
+        Array<PlaceHw> hw;
+        draw_places(ws, ms, map, &hw);
+        printf("seed %s: %u places, %s\n", v, ws.places,
+               ms.fields && map.placed() ? "dealt by the fields" : "each drawn alone (no fields)");
+        u32 by[kMaxThreadLimits] = {};
+        for (u32 i = 0; i < ws.places; ++i) {
+            const PlaceHw& h = hw[i];
+            u32 e = 0;
+            for (u32 c = 0; c < h.cores; ++c)
+                e += h.e[c];
+            char lim[40];
+            if (h.thread_limit)
+                snprintf(lim, sizeof lim, "%u thread%s a program", h.thread_limit, h.thread_limit == 1 ? "" : "s");
+            else
+                snprintf(lim, sizeof lim, "no thread limit");
+            printf("  place %u: %u cores (%u E), %u memory devices, %s, %u-byte pages, %s\n", i, h.cores, e,
+                   h.devices, h.strict ? "strict" : "lax", h.page_size, lim);
+            for (u32 j = 0; j < ws.thread_limit_count; ++j)
+                if (ws.thread_limits[j] == h.thread_limit) {
+                    ++by[j];
+                    break;
+                }
+        }
+        printf("  by thread limit:");
+        for (u32 j = 0; j < ws.thread_limit_count; ++j) {
+            bool first_time = true;
+            for (u32 q = 0; q < j; ++q)
+                first_time = first_time && ws.thread_limits[q] != ws.thread_limits[j];
+            if (!first_time)
+                continue;
+            if (ws.thread_limits[j])
+                printf(" %u: %u places;", ws.thread_limits[j], by[j]);
+            else
+                printf(" none: %u places;", by[j]);
+        }
+        printf("\n");
+    }
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -702,6 +775,8 @@ int main(int argc, char** argv) {
         return cmd_check(argc, argv);
     if (strcmp(argv[1], "sizes") == 0)
         return cmd_sizes(argc, argv);
+    if (strcmp(argv[1], "places") == 0)
+        return cmd_places(argc, argv);
     if (strcmp(argv[1], "genomes") == 0)
         return cmd_genomes(argc, argv);
     if (strcmp(argv[1], "watch") == 0 || strcmp(argv[1], "save") == 0)

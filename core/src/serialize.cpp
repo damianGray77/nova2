@@ -581,8 +581,10 @@ void Os::serialize(Archive& ar) {
         ar.u32_(f.old_at);
         ar.bool_(f.boot);
         ar.u64_(f.writer_before);
+        // old_at is the write's offset in flight_old_ to 32 bits: past 4 GiB in
+        // one barrier it has wrapped, and Os::tear doesn't use it (2026-11-25).
         if (f.core >= core_count_ || f.thread > threads_.size() || f.offset >= disk_.size() ||
-            f.n > disk_.size() - f.offset || (f.write && f.old_at != old))
+            f.n > disk_.size() - f.offset || (f.write && f.old_at != static_cast<u32>(old)))
             ar.fail();
         old += f.write ? f.n : 0;
     }

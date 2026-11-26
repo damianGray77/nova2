@@ -80,6 +80,12 @@ namespace nova2 {
 
 class Observer; // observe.h: watches without changing anything (13.1)
 
+// Every place's values as World::init has them at the start, before its
+// visits and cooling devices (7.3, 9.6): each place's draws, dealt out by
+// the fields when the map has them. A built map is enough, so `nova2
+// places` lists them without building the places.
+void draw_places(const WorldSettings& ws, const MapSettings& ms, const Map& map, Array<PlaceHw>* hw);
+
 class World {
   public:
     World() = default;

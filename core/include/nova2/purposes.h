@@ -58,6 +58,10 @@ inline constexpr u32 kPurposeCurrent = 32;
 inline constexpr u32 kPurposeSeason = 33;
 // The out-of-memory killer's draw at a place, by the tick (9.1).
 inline constexpr u32 kPurposeKiller = 34;
+// A place's limit on the threads one program may have, drawn from
+// os.thread_limits (9.6; design-thread-limit-2026-11-25.md), apart from
+// kPurposeOs's page size and strict or lax, so that adding it moves neither.
+inline constexpr u32 kPurposeThreadLimit = 35;
 // + a device's slot (wear.h): whether it is flaky, and its factor, keyed by
 // how many times it has been replaced (7.5).
 inline constexpr u32 kPurposeFlaky = 0xA00;

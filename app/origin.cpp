@@ -408,6 +408,13 @@ struct SeedGround {
     u64 watched = 0; // overruns still watched at the end
     // Gate 5's watching (step 11; watch_report.h).
     SeedWatch watch;
+    // The places by their limit on a program's threads (9.6, 2026-11-25),
+    // by the limit's first index in os.thread_limits, at the seed's end:
+    // how many, their programs and live threads, and their thread SPAWNs
+    // asked for and refused by the limit (each place's totals).
+    u64 limit_places[kMaxThreadLimits] = {}, limit_programs[kMaxThreadLimits] = {};
+    u64 limit_threads[kMaxThreadLimits] = {}, limit_asked[kMaxThreadLimits] = {};
+    u64 limit_refused[kMaxThreadLimits] = {};
 };
 
 // How a seed's power map came out (map.h; gate 4). Beside its SeedResult,
@@ -870,10 +877,12 @@ void dump_genomes(World& w, const Observer& o, const Params& p, const SeedResult
 
     if (r.s4_origin != kNone) {
         const Place& pl = w.place(r.s4_place);
-        fprintf(f, "seed %llu: stage 4 at tick %llu, by the lineage of program %llu in place %u (%s, %u-byte pages)\n",
+        char lim[40];
+        thread_limit_text(w.settings(), pl.os.settings().thread_limit, lim, sizeof lim);
+        fprintf(f, "seed %llu: stage 4 at tick %llu, by the lineage of program %llu in place %u (%s, %u-byte pages%s)\n",
                 static_cast<unsigned long long>(r.seed), static_cast<unsigned long long>(r.stage[4]),
                 static_cast<unsigned long long>(r.s4_origin), r.s4_place, pl.mem.strict() ? "strict" : "lax",
-                pl.mem.page_size());
+                pl.mem.page_size(), lim);
         fprintf(f, "  then: %u of the place's %u programs were in it, %u of them born as copies (%u faithful);\n",
                 r.s4_alive, r.s4_programs, r.s4_alive_copies, r.s4_alive_faithful);
         fprintf(f, "  it had held the place since tick %llu;\n", static_cast<unsigned long long>(r.s4_held_since));
@@ -896,9 +905,11 @@ void dump_genomes(World& w, const Observer& o, const Params& p, const SeedResult
     for (usize k = deep.size(); k-- > 0 && shown < 20; ++shown) {
         const LineageRec& L = o.lineage_at(count_key_index(deep[k]));
         const Place& pl = w.place(L.place);
-        fprintf(f, "lineage of program %llu, place %u (%s, %u-byte pages), born at tick %llu, first copy at %llu\n",
+        char lim[40];
+        thread_limit_text(w.settings(), pl.os.settings().thread_limit, lim, sizeof lim);
+        fprintf(f, "lineage of program %llu, place %u (%s, %u-byte pages%s), born at tick %llu, first copy at %llu\n",
                 static_cast<unsigned long long>(L.origin), L.place, pl.mem.strict() ? "strict" : "lax",
-                pl.mem.page_size(), static_cast<unsigned long long>(L.born),
+                pl.mem.page_size(), lim, static_cast<unsigned long long>(L.born),
                 static_cast<unsigned long long>(L.first_copy));
         fprintf(f, "  %llu births, %llu faithful; %u generations deep, at most %u faithful births in a row; %llu groups\n",
                 static_cast<unsigned long long>(L.births), static_cast<unsigned long long>(L.faithful), L.max_depth,
@@ -1448,6 +1459,27 @@ void write_windows(World& w, const Observer& o, const char* dir, u64 seed) {
 void tally_ground(World& w, const Observer& o, SeedGround& g) {
     for (u32 i = 0; i < w.place_count() && i < o.ground.size(); ++i)
         g.os[w.place(i).mem.strict() ? 1 : 0].add(o.ground[i]);
+}
+
+// A thread limit's first index in os.thread_limits (as size_index is a page size's).
+u32 limit_index(const WorldSettings& ws, u32 limit) {
+    for (u32 i = 0; i < ws.thread_limit_count; ++i)
+        if (ws.thread_limits[i] == limit)
+            return i;
+    return 0;
+}
+
+// The places by their thread limit, at the seed's end (SeedGround).
+void tally_limits(World& w, SeedGround& g) {
+    for (u32 i = 0; i < w.place_count(); ++i) {
+        const Place& pl = w.place(i);
+        const u32 k = limit_index(w.settings(), pl.os.settings().thread_limit);
+        ++g.limit_places[k];
+        g.limit_programs[k] += pl.os.live_programs();
+        g.limit_threads[k] += pl.os.live_threads();
+        g.limit_asked[k] += pl.os.spawns_thread;
+        g.limit_refused[k] += pl.os.spawns_limited;
+    }
 }
 
 // Whether the place a window is of was strict: the place as set up, or for
@@ -2129,6 +2161,7 @@ void run_seed(void* ctx, u32 k) {
         dump_genomes(w, o, p, r, p.genomes);
     tally_turnover(w, o, r);
     tally_ground(w, o, job.grounds[k]);
+    tally_limits(w, job.grounds[k]);
     tally_power(w, r);
     tally_gate4(w, r);
     if (r.mapped)
@@ -2802,6 +2835,36 @@ int cmd_origin(Config& cfg, bool busy) {
             printf("  %-6s %5u-byte pages: %4u places, stage %u\n", strict ? "strict" : "lax", ws.page_sizes[i],
                    places, best);
         }
+    // The third OS value (9.6, 2026-11-25), only when a place has a limit,
+    // so a world without one reads as before. The places as they stand at
+    // each seed's end; a respawned place's counts are of all its lives.
+    if (thread_limits_on(ws)) {
+        printf("\nby the limit on a program's threads (places across all seeds, at each seed's end):\n");
+        for (u32 i = 0; i < ws.thread_limit_count; ++i) {
+            if (limit_index(ws, ws.thread_limits[i]) != i)
+                continue; // listed twice: counted at its first
+            u64 places = 0, programs = 0, live = 0, asked = 0, refused = 0;
+            for (u32 k = 0; k < p.seeds; ++k) {
+                places += grounds[k].limit_places[i];
+                programs += grounds[k].limit_programs[i];
+                live += grounds[k].limit_threads[i];
+                asked += grounds[k].limit_asked[i];
+                refused += grounds[k].limit_refused[i];
+            }
+            char name[32];
+            if (ws.thread_limits[i])
+                snprintf(name, sizeof name, "%u a program", ws.thread_limits[i]);
+            else
+                snprintf(name, sizeof name, "no limit");
+            printf("  %-16s %4llu places, %8llu programs, %9llu threads (%.2f a program); thread SPAWNs: %llu, "
+                   "%llu refused by the limit (%.1f%%)\n",
+                   name, static_cast<unsigned long long>(places), static_cast<unsigned long long>(programs),
+                   static_cast<unsigned long long>(live),
+                   programs ? static_cast<double>(live) / static_cast<double>(programs) : 0.0,
+                   static_cast<unsigned long long>(asked), static_cast<unsigned long long>(refused),
+                   share_of(refused, asked));
+        }
+    }
 
     // The turnover measure (build-plan-gate2.md step 1).
     if (p.obs.turnover.window) {
@@ -3130,6 +3193,16 @@ int cmd_origin(Config& cfg, bool busy) {
                        static_cast<unsigned long long>(two[k][0]), static_cast<unsigned long long>(two[k][1]),
                        share_of(two[k][1], two[k][0]),
                        days > 0 ? 1000.0 * static_cast<double>(two[k][0]) / days : 0.0);
+            // The thread SPAWNs the places' limits refused (9.6, 2026-11-25),
+            // among those that failed: only when a place has a limit.
+            if (thread_limits_on(ws)) {
+                u64 refused = 0;
+                for (u32 k = 0; k < p.seeds; ++k)
+                    for (u32 i = 0; i < kMaxThreadLimits; ++i)
+                        refused += grounds[k].limit_refused[i];
+                printf("      refused by the thread limit: %llu (%.1f%% of the thread SPAWNs)\n",
+                       static_cast<unsigned long long>(refused), share_of(refused, sum.spawns_thread));
+            }
         }
         printf("  SENDs to a port other than 0: %llu asked for, %llu let go\n",
                static_cast<unsigned long long>(sum.sends_other), static_cast<unsigned long long>(sum.sends_other_ok));

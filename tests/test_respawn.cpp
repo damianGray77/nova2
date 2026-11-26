@@ -952,7 +952,55 @@ void test_plain() {
 
 } // namespace
 
+// A respawned place's limit on a program's threads (os.thread_limits; 9.6,
+// 2026-11-25) is drawn again as its page size is (7.3): the limit the world
+// dealt to the place whose field value is nearest the new place's at its
+// point. A save taken after the respawns loads to the same limits.
+void test_thread_limit_respawn() {
+    World w;
+    Config cfg;
+    TextBuf why;
+    CHECK(build_world(w, cfg, "os.thread_limits = 1 4 32 0\n", &why));
+    CHECK(w.respawning());
+    crowd(w);
+    w.start_threads(3);
+    u32 checked = 0, changed = 0;
+    for (u32 t = 0; t < 60; ++t) {
+        w.tick();
+        if (t % 5 != 2)
+            continue;
+        const u32 i = (t * 7) % w.place_count();
+        w.respawn(i);
+        const Map& m = w.map();
+        const u32 who = m.nearest_dealt(Field::threads, m.field_now(Field::threads, i));
+        const u32 page = m.nearest_dealt(Field::page, m.field_now(Field::page, i));
+        CHECK(w.place(i).os.settings().thread_limit == w.dealt(who).thread_limit);
+        CHECK(w.place(i).mem.page_size() == w.dealt(page).page_size);
+        changed += w.place(i).os.settings().thread_limit != w.dealt(i).thread_limit ? 1 : 0;
+        ++checked;
+    }
+    ByteWriter saved;
+    snapshot(w, cfg, saved);
+    SnapshotHeader h;
+    TextBuf err;
+    Config::ParseError pe;
+    Config again;
+    World b;
+    CHECK(snapshot_parse(saved.data(), saved.size(), &h, &err) && snapshot_config(h, &again, &pe) &&
+          b.init(again, &why));
+    ByteReader in(saved.data() + h.world_offset, h.world_size);
+    CHECK(b.load(in, h.version));
+    CHECK_EQ_U64(b.hash(), w.hash());
+    bool same = true;
+    for (u32 i = 0; i < w.place_count(); ++i)
+        same = same && b.place(i).os.settings().thread_limit == w.place(i).os.settings().thread_limit;
+    CHECK(same && checked == 12);
+    printf("  thread limits at respawns: %u places respawned by hand, %u with another limit than they began with\n",
+           checked, changed);
+}
+
 void suite_respawn() {
+    test_thread_limit_respawn();
     test_unmoved();
     test_respawns();
     test_islands();

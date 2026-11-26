@@ -185,6 +185,20 @@ void read_world_settings(Config& cfg, WorldSettings* ws) {
     if (w.page_size_count == 0)
         cfg.fail("os.page_sizes", "must list at least one page size");
     w.strict_share = key_f64(cfg, "os.strict_share");
+    // The limits on a program's threads (9.6, 2026-11-25): 0 is no limit.
+    const Str limits = key_str(cfg, "os.thread_limits");
+    w.thread_limit_count = 0;
+    at = 0;
+    while (next_word(limits, &at, &word)) {
+        u64 v = 0;
+        if (!parse_u64(word, &v) || v > 0xFFFFFFFFull || w.thread_limit_count == kMaxThreadLimits) {
+            cfg.fail("os.thread_limits", "must list up to 8 whole numbers, each 0 (no limit) or at least 1");
+            break;
+        }
+        w.thread_limits[w.thread_limit_count++] = static_cast<u32>(v);
+    }
+    if (w.thread_limit_count == 0)
+        cfg.fail("os.thread_limits", "must list at least one limit (0 for none)");
 
     // The call numbering (9.2).
     const Str slots = key_str(cfg, "os.slots");
@@ -287,6 +301,25 @@ void read_world_settings(Config& cfg, WorldSettings* ws) {
     }
 }
 
+bool thread_limits_on(const WorldSettings& ws) {
+    for (u32 i = 0; i < ws.thread_limit_count; ++i)
+        if (ws.thread_limits[i])
+            return true;
+    return false;
+}
+
+void thread_limit_text(const WorldSettings& ws, u32 limit, char* out, usize size) {
+    if (!size)
+        return;
+    out[0] = 0;
+    if (!thread_limits_on(ws))
+        return;
+    if (!limit)
+        snprintf(out, size, ", no thread limit");
+    else
+        snprintf(out, size, ", %u thread%s a program", limit, limit == 1 ? "" : "s");
+}
+
 void draw_hardware(const WorldSettings& ws, u32 id, PlaceHw* out) { draw_hardware(ws, id, out, ws.seed); }
 
 u64 place_seed(u64 seed, u32 id, u32 incarnation) {
@@ -311,6 +344,10 @@ void draw_hardware(const WorldSettings& ws, u32 id, PlaceHw* out, u64 seed) {
     Rng osr(seed, id, kPurposeOs, Rng::kInitTick);
     p.page_size = ws.page_sizes[osr.below(ws.page_size_count)];
     p.strict = osr.chance(ws.strict_share);
+    // The limit on a program's threads (9.6, 2026-11-25), from a stream of
+    // its own, so that adding it moves no other draw.
+    Rng tl(seed, id, kPurposeThreadLimit, Rng::kInitTick);
+    p.thread_limit = ws.thread_limits[tl.below(ws.thread_limit_count)];
 }
 
 bool Place::init(u32 id, const WorldSettings& ws, TextBuf* why) {
@@ -435,7 +472,9 @@ bool Place::init(u32 id, const WorldSettings& ws, const PlaceHw& hw, TextBuf* wh
         env.devices.push(s);
     }
 
-    if (!os.init(&mem, cores, core_count_, &env, ws.os, why))
+    OsSettings oss = ws.os;
+    oss.thread_limit = hw.thread_limit; // the place's own (9.6)
+    if (!os.init(&mem, cores, core_count_, &env, oss, why))
         return false;
     if (!sched.init(&os, &mem, cores, core_count_, &env, ws.sched, &ws.p_costs, &ws.e_costs, why))
         return false;

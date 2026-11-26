@@ -133,6 +133,13 @@ struct OsSettings {
     //   next instruction. 0: off.
     u64 killer = 2000;
     u64 watchdog = 1000000;
+    // The third OS value (9.6; design-thread-limit-2026-11-25.md): a SPAWN
+    // that would start a thread of the caller's own program fails when the
+    // program has this many live threads already, or more. A SPAWN that
+    // makes a new program is untouched. 0: no limit. Each place has its own,
+    // drawn from os.thread_limits (WorldSettings::thread_limits) and set by
+    // Place::init, as its page size is; it is not saved.
+    u32 thread_limit = 0;
 };
 
 enum class ThreadState : u8 {
@@ -181,7 +188,9 @@ inline constexpr u32 kNowhere = 0x80000000u;
 enum class BirthCause : u8 { thread = 0, static_bytes, arrival, boot, hand };
 // Why a SPAWN failed: the address isn't in an allocation the caller holds,
 // its page is data, or no program or thread record was free.
-enum class SpawnMiss : u8 { none = 0, not_held, data_page, no_record };
+// From 2026-11-25, `limit`: the caller's program has its place's limit of
+// threads (OsSettings::thread_limit); only a program's thread is refused it.
+enum class SpawnMiss : u8 { none = 0, not_held, data_page, no_record, limit };
 // `heat`, from gate 4: its core tripped at its heat limit (5). From gate 5
 // (9.1, 13.1): `oom`, ended by the out-of-memory killer, and `watchdog`,
 // the watchdog's fault with no handler to take it.
@@ -457,6 +466,8 @@ class Os {
     void tear(u64 at);
     // The in-flight window closes at each tick's device states.
     void settle_disk() { flight_.clear(); flight_old_.clear(); }
+    // The room kept for a barrier's old bytes (what a test reads; not state).
+    usize flight_room() const { return flight_old_.capacity(); }
     // An idle run that ends forgets its DREAD.
     void cancel_disk(u32 core);
     u8* disk() { return disk_.data(); }
@@ -754,7 +765,7 @@ class Os {
         u32 core, thread, thread_id; // as DiskOp's
         bool write;
         u32 offset, n; // where on the disk, and the bytes moved
-        u32 old_at;    // a write's old bytes, in flight_old_
+        u32 old_at;    // a write's old bytes, in flight_old_, to 32 bits (saved; Os::tear walks back instead)
         bool boot;     // a write landing in the boot block: it made its writer the block's last
         u64 writer_before; // and who was before, should a cut-out put the write back whole
     };
@@ -833,6 +844,20 @@ class Os {
     // end (reindex, check), so the killer's draw reads no further (pass 13).
     u32 program_top_ = 0;
     void lower_program_top(); // after a program's end
+
+  public:
+    // SPAWNs refused by the place's limit on a program's threads
+    // (OsSettings::thread_limit): each is in spawns_thread, and not in
+    // spawns_thread_ok. Last, moving no other member.
+    u64 spawns_limited = 0;
+
+  private:
+    // The barrier's (2026-11-25): each request's count, found before any is
+    // served, and the room for the writes' old bytes made from them.
+    // Scratch, not saved. Last, moving no other member.
+    Array<u32> op_n_;
+    void fit_flight_room(u64 need);
+    bool still_waits(const DiskOp& op) const; // a thread's request: whether it still waits for it
 };
 
 } // namespace nova2

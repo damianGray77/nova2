@@ -36,7 +36,8 @@ double grad(u8 h, double x, double y) {
 }
 
 const char* const kFieldNames[kFieldCount] = {"cores",     "ecores",  "devices",    "latency", "page",   "strict",
-                                              "bandwidth", "density", "resistance", "cooling", "coolers"};
+                                              "bandwidth", "density", "resistance", "cooling", "coolers",
+                                              "threads"};
 
 } // namespace
 

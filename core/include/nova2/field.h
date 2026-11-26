@@ -57,9 +57,10 @@ enum class Field : u32 {
     density,
     resistance,
     cooling,
-    coolers
+    coolers,
+    threads // the places' limits on a program's threads (9.6, 2026-11-25), last for the same reason
 };
-inline constexpr u32 kFieldCount = 11;
+inline constexpr u32 kFieldCount = 12;
 // Its settings' name: "cores", "ecores", ...
 const char* field_name(Field f);
 
