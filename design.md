@@ -2244,8 +2244,14 @@ place.
   - **The default is no limit at every place,** which is the world as it
     was. It is first tried in `runs/open-6`: open-5's world with limits of
     1, 4, 32 and none, about a quarter of the places each, and a second
-    run beside it at a tenth of the cosmic-ray rate. A report at 5 million
-    ticks decides whether the limits and the rate stay.
+    run beside it at a tenth of the cosmic-ray rate.
+  - **The trial so far [2026-11-26].** At 5 million ticks
+    (`thread-limit-pilot-report-2026-11-26.md`) the limit caps the flood:
+    2.3 threads a program against open-5's 24, and 3.4 times open-5's
+    programs. It is not a balance yet: one lineage of one-thread copiers
+    leads places of every kind. The lower rate lengthens lives, not
+    genomes. Damian: "Yes, keep it". So open-6 runs on as it is, at its
+    own rate, and the limit stays off by default and on trial.
   - **Why:** a core is shared by thread (9.5), and a thread costs 64 bytes
     and a SPAWN, so a few programs start thousands. `runs/open-5` at tick
     22.5 million had 3.3 million threads on about 3,600 cores, and in one
@@ -3444,6 +3450,23 @@ creates what they show (2).
       whole copy at least every 16 steps along a line ("I like the idea
       of storing a key frame every 16 changes, I think it is worthwhile
       to keep in"). It changes the files, not what is kept.
+    - **The record is to become one of the programs that last
+      [2026-11-26, Damian; agreed, not yet built]**
+      (`design-genome-record-2026-11-26.md`). Until it is built the
+      files are as above.
+      - Every program with a grandchild gets a record naming its real
+        parent. Its genome is a flag when it is its parent's, a pointer
+        when it is already on record, and the changes otherwise
+        (Damian: "setting the parent id to the actual parent and then
+        setting a bit flag to indicate it is the same genome").
+      - Lineage and generation are not stored. A tool traces them
+        ("lineage and generation are implicit data that one can get
+        from tracing a program back through the parent").
+      - A genome is written whole only as a base type, and the whole
+        copy every 16 steps goes ("I'm also fine with just keeping the
+        original base type and diffs of the rest").
+      - The genome's hash and its group number leave the record. A
+        record's id is its position in the file.
 - **Code after birth is tracked by sampling.** Each sample hashes the code
   around each thread's IP. That shows overwrites, colonies running many
   threads, and code that changes after birth.

@@ -222,3 +222,16 @@ the build.
     `map.threads.edge` (1) and `map.threads.sharpness` (8).
   - Refused SPAWNs are counted in each place's counters and shown in the
     report, by limit. They are not a column in the samples.
+- **After the report (2026-11-26):** `thread-limit-pilot-report-2026-11-26.md`
+  reads both runs at 5 million ticks against section 6's five tests.
+  - Test 1 holds: threads a program fell wherever there is a limit.
+  - Test 2 does not: one lineage of one-thread copiers leads places of
+    every kind.
+  - Test 3 holds for turnover and not for length: the lower rate did not
+    give longer genomes. Almost none passes 127 bytes in any run, the
+    most one instruction's constant can hold.
+  - Test 4 was not measured directly.
+  - Test 5 holds, nearly: speed and memory are close to open-5's.
+  - Damian, asked whether open-6 should keep running as it is: "Yes, keep
+    it". open-6 runs on with these limits at open-5's flip rate. The
+    lower rate is not taken up, and the limit stays off by default.

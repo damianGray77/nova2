@@ -6877,3 +6877,81 @@ per-place columns this way.
     fits: a 27-byte genome takes about one flip a lifetime); that life
     will differ by kind of place.
   - In `design.md` 9.5 and 9.6, and `design-thread-limit-2026-11-25.md`.
+- 2026-11-26: **The thread limit's pilot at 5 million ticks: it caps the
+  flood and is not a balance; open-6 runs on.**
+  - **What was run.** `runs/open-6` (open-5's settings and seed with
+    limits of 1, 4, 32 and none) from tick 0, and `runs/limit-b` beside
+    it at a tenth of the flip rate, to 5 million ticks. The report is
+    `thread-limit-pilot-report-2026-11-26.md`.
+  - **What the limit did.** Threads a program fell to 2.3, against
+    open-5's 24, and to 1.0, 1.9 and 3.8 in the limited kinds of place
+    against 10.7 where there is no limit. The world holds 3.4 times
+    open-5's programs at the same age, with five times the births and
+    twice the faithful share. The middle genome length is open-5's (55
+    bytes). Speed and memory are close to open-5's.
+  - **What it did not do.** The kinds of place are not led by different
+    lineages or ways of living. One lineage of plain one-thread copiers
+    holds 30% of the kept genomes and leads 12 places across all four
+    kinds. Life moved to the 1- and 4-thread places (88% of births); the
+    no-limit places fell from a quarter of the kept genomes to a
+    fiftieth, and one program there still holds tens of thousands of
+    threads. The risk the proposal named came true: the limit caps
+    floods, and it is not a balance.
+  - **The flip rate.** A tenth of the rate gave lives 3.5 times as long,
+    a quarter of the births and a third of the generations. Places still
+    turned over. It did not give longer genomes.
+  - **A wall at 127 bytes, read from the design and not tested.** In
+    open-5, open-6 and the second pilot almost no kept genome is longer
+    than 127 bytes. A constant in an instruction is one byte, -128 to 127
+    (Appendix A.2), so a copier that sets its length in one instruction
+    cannot copy more. Growing past it takes a second step, as Appendix A's
+    `MOV # 64; SHL # 2`. So length looks held by that step, not by
+    flips, and the second pilot could not show what the rate does to
+    long genomes. This puts the 2026-11-25 reading (that the settled
+    rate culls larger genomes) in doubt.
+  - **What Damian decided.** Asked whether open-6 should keep running as
+    it is: "Yes, keep it". So open-6 runs on with its limits at open-5's
+    flip rate. The lower rate is not taken up. The limit stays off by
+    default and on trial.
+  - **Still open:** a mechanic for "no one king"; whether to do anything
+    about the 127-byte step; where open-6's records go (they grow by 50
+    to 60 GB a day).
+  - In `design.md` 9.6.
+- 2026-11-26: **The genome record is to become a record of the programs
+  that last, each with its real parent.** (Agreed with Damian; not yet
+  built. `design-genome-record-2026-11-26.md`.)
+  - **Why.** open-6's records grow by about 35 GB a day and 99% of that
+    is the genome record. Offered a move to another drive, Damian said:
+    "I don't think moving those records is going to be a long-term
+    viable solution. I'd rather our next phase be to optimize what data
+    gets saved, how often it gets saved, whether we actually need it to
+    be saved". Offered a 1-in-20 sample or the full tree, he took
+    neither: "rather than losing any of that information, it would be
+    better to have something like a "types" list".
+  - **What was measured** (2,000,000 genomes of open-6, at two ages). A
+    kept genome takes 82 bytes: a fixed 64-byte row, and 18 bytes for
+    its bytes, which are already changes from the parent in 92% of
+    genomes. The row nearly repeats its parent's row. Written as the
+    parent and what changed, a genome takes about 20 bytes.
+  - **What Damian decided first.** Lineage and generation are traced,
+    not stored. A genome is written whole only as a base type, so the
+    whole copy every 16 steps (2026-11-20) goes. A tool returns lineage
+    and generation for an id or a set of ids.
+  - **The copies.** The file saves each genome once, so a faithful copy
+    has no record, and a trace would count only changes: about half the
+    generation, since the step between kept genomes is 2.14 on average.
+    Damian: "that sounds like a bug in the way we are handling copies
+    ... it could be solved by setting the parent id to the actual parent
+    and then setting a bit flag to indicate it is the same genome". So
+    every program that lasts (has a grandchild) gets a record, copy or
+    not. That is his rule of 2026-11-18 as he worded it ("a record of
+    each generation"). The simulation was never wrong about parents:
+    only the file folded the copies.
+  - **Cost.** A copy's record is about 7 bytes. How many copies last is
+    not on disk, so the build counts that first. The estimate is 12 to
+    14 GB a day against 35. It does not stop the growth.
+  - **Signed off:** "Yes, as leaned" to the proposal's ten decisions.
+  - **Left for later:** which programs earn a record, and the observer's
+    groups (128 million for 358 million kept genomes; their table is why
+    the observers' memory grows; stage 5 counts them).
+  - In `design.md` 13.2.
